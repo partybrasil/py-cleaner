@@ -11,6 +11,7 @@ def generate_report():
     with open('pyREPORT.txt', 'w') as report_file:
         report_file.write(result.stdout)
     print("Reporte generado como pyREPORT.txt")
+    print("generate_report() ejecutado correctamente.")
 
 def uninstall_dependencies():
     if not os.path.exists('pyREPORT.txt'):
@@ -30,18 +31,25 @@ def uninstall_dependencies():
     
     for dep in dependencies:
         subprocess.run([sys.executable, '-m', 'pip', 'uninstall', '-y', dep.strip()])
+    print("uninstall_dependencies() ejecutado correctamente.")
 
 def check_environment():
     subprocess.run([sys.executable, '-m', 'pip', 'list'])
+    print("check_environment() ejecutado correctamente.")
 
 def execute_activator():
     subprocess.run(['powershell', '-File', 'Activador VENV.ps1'])
+    print("execute_activator() ejecutado correctamente.")
 
 def manual_command():
+    print("\nCrear Ambiente Virtual VENV:")
+    print("python -m venv .venv")
     print("\nActivar Ambiente Virtual VENV:")
-    print("(WINDOWS):   .\\.venv\\Scripts\\Activate")
+    print(".\\.venv\\Scripts\\Activate")
     print("\nDesactivar Ambiente Virtual VENV:")
-    print("(WINDOWS):   deactivate")
+    print("deactivate")
+    print("\nVerificar y manejar Politica de Ejecucion de Scripts en PowerShell:")
+    print("Set-ExecutionPolicy (Restricted, AllSigned, RemoteSigned, Unrestricted)")
     
     while True:
         choice = input("\nElija una opción:\n1. Volver al menú\n2. Salir\nOpción: ")
@@ -52,6 +60,7 @@ def manual_command():
             raise SystemExit
         else:
             print("Opción inválida. Por favor, intente de nuevo.")
+    print("manual_command() ejecutado correctamente.")
 
 def main():
     while True:
