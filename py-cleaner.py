@@ -37,6 +37,22 @@ def check_environment():
 def execute_activator():
     subprocess.run(['powershell', '-File', 'Activador VENV.ps1'])
 
+def manual_command():
+    print("\nActivar Ambiente Virtual VENV:")
+    print("(WINDOWS):   .\\.venv\\Scripts\\Activate")
+    print("\nDesactivar Ambiente Virtual VENV:")
+    print("(WINDOWS):   deactivate")
+    
+    while True:
+        choice = input("\nElija una opción:\n1. Volver al menú\n2. Salir\nOpción: ")
+        if choice == '1':
+            return
+        elif choice == '2':
+            print("Saliendo...")
+            raise SystemExit
+        else:
+            print("Opción inválida. Por favor, intente de nuevo.")
+
 def main():
     while True:
         venv_status = "ACTIVO" if is_venv_active() else "INACTIVO"
@@ -46,7 +62,8 @@ def main():
         print("2. Generar Reporte de Dependencias Instaladas")
         print("3. Desinstalar dependencias de Python")
         print("4. Verificar Entorno de Python")
-        print("5. Salir")
+        print("5. Comando Manual")
+        print("6. Salir")
         
         choice = input("Elija una opción: ")
         
@@ -59,8 +76,10 @@ def main():
         elif choice == '4':
             check_environment()
         elif choice == '5':
+            manual_command()
+        elif choice == '6':
             print("Saliendo...")
-            break
+            raise SystemExit
         else:
             print("Opción inválida. Por favor, intente de nuevo.")
 
