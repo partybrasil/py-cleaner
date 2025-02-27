@@ -10,22 +10,22 @@ def generate_report():
     result = subprocess.run([sys.executable, '-m', 'pip', 'freeze'], capture_output=True, text=True)
     with open('pyREPORT.txt', 'w') as report_file:
         report_file.write(result.stdout)
-    print("Report generated as pyREPORT.txt")
+    print("Reporte generado como pyREPORT.txt")
 
 def uninstall_dependencies():
     if not os.path.exists('pyREPORT.txt'):
-        print("pyREPORT.txt not found.")
+        print("pyREPORT.txt no encontrado.")
         return
     
     with open('pyREPORT.txt', 'r') as report_file:
         dependencies = report_file.readlines()
     
-    print("Dependencies to uninstall:")
+    print("Dependencias a desinstalar:")
     for dep in dependencies:
         print(dep.strip())
     
-    confirm = input("Do you want to proceed with uninstallation? (yes/no): ")
-    if confirm.lower() != 'yes':
+    confirm = input("¿Desea proceder con la desinstalación? (sí/no): ")
+    if confirm.lower() != 'sí':
         return
     
     for dep in dependencies:
@@ -39,16 +39,16 @@ def execute_activator():
 
 def main():
     while True:
-        venv_status = "ON" if is_venv_active() else "OFF"
+        venv_status = "ACTIVO" if is_venv_active() else "INACTIVO"
         print(f"\nEntorno Virtual: {venv_status}")
-        print("\nPython Cleaner Tool")
+        print("\nHerramienta de Limpieza de Python")
         print("1. Ejecutar Script Activador")
-        print("2. Generar Report de Dependencias Instaladas")
-        print("3. Desinstalar dependencias del python")
-        print("4. Check Python Environment")
-        print("5. Exit")
+        print("2. Generar Reporte de Dependencias Instaladas")
+        print("3. Desinstalar dependencias de Python")
+        print("4. Verificar Entorno de Python")
+        print("5. Salir")
         
-        choice = input("Choose an option: ")
+        choice = input("Elija una opción: ")
         
         if choice == '1':
             execute_activator()
@@ -59,17 +59,17 @@ def main():
         elif choice == '4':
             check_environment()
         elif choice == '5':
-            print("Exiting...")
+            print("Saliendo...")
             break
         else:
-            print("Invalid choice. Please try again.")
+            print("Opción inválida. Por favor, intente de nuevo.")
 
 def signal_handler(sig, frame):
-    print("\nReturning to menu...")
+    print("\nRegresando al menú...")
     main()
 
 if __name__ == "__main__":
-    print("Welcome to Python Cleaner Tool")
-    print("Please ensure the virtual environment is activated before running this application.")
+    print("Bienvenido a la Herramienta de Limpieza de Python")
+    print("Por favor, asegúrese de que el entorno virtual esté activado antes de ejecutar esta aplicación.")
     signal.signal(signal.SIGINT, signal_handler)
     main()
