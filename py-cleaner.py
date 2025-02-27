@@ -55,8 +55,8 @@ def manual_command():
 
 def main():
     while True:
-        venv_status = "ACTIVO" if is_venv_active() else "INACTIVO"
-        print(f"\nEntorno Virtual: {venv_status}")
+        venv_status = "VIRTUAL" if is_venv_active() else "GLOBAL"
+        print(f"\nEntorno/Ambiente Python Activo: {venv_status}")
         print("\nHerramienta de Limpieza de Python")
         print("1. Ejecutar Script Activador")
         print("2. Generar Reporte de Dependencias Instaladas")
