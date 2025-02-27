@@ -1,6 +1,7 @@
 import os
 import subprocess
 import sys
+import signal
 
 def is_venv_active():
     return sys.prefix != sys.base_prefix
@@ -63,8 +64,12 @@ def main():
         else:
             print("Invalid choice. Please try again.")
 
+def signal_handler(sig, frame):
+    print("\nReturning to menu...")
+    main()
+
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        print("\nExiting...")
+    print("Welcome to Python Cleaner Tool")
+    print("Please ensure the virtual environment is activated before running this application.")
+    signal.signal(signal.SIGINT, signal_handler)
+    main()
