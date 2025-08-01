@@ -35,7 +35,7 @@ def check_environment():
     print("check_environment() ejecutado correctamente.")
 
 def execute_activator():
-    subprocess.run(['powershell', '-File', 'Activador VENV.ps1'])
+    subprocess.run(['powershell', '-File', 'Activador-VENV.ps1'])
     print("execute_activator() ejecutado correctamente.")
 
 def manual_command():
@@ -93,6 +93,7 @@ def signal_handler(sig, frame):
 # --- GUI con PySide6 ---
 def iniciar_gui():
     import sys
+    import signal
     from PySide6.QtWidgets import (
         QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTextEdit,
         QTableWidget, QTableWidgetItem, QStatusBar, QDialog, QMessageBox, QCheckBox, QGroupBox, QGridLayout, QLineEdit, QTabWidget, QPlainTextEdit
@@ -239,17 +240,49 @@ def iniciar_gui():
                     self.console.appendPlainText("> ")
             threading.Thread(target=run, daemon=True).start()
 
+    class MoveCornerWidget(QWidget):
+        def __init__(self, parent=None):
+            super().__init__(parent)
+            self.setCursor(Qt.SizeAllCursor)
+            self._drag_active = False
+            self._drag_pos = None
+        def paintEvent(self, event):
+            from PySide6.QtGui import QPainter, QPolygon, QColor
+            painter = QPainter(self)
+            # Triángulo visual, color azul claro
+            points = [
+                self.rect().bottomLeft(),
+                self.rect().topLeft(),
+                self.rect().bottomRight()
+            ]
+            triangle = QPolygon(points)
+            painter.setBrush(QColor("#4FC3F7"))
+            painter.setPen(QColor("#1976D2"))
+            painter.drawPolygon(triangle)
+        def mousePressEvent(self, event):
+            if event.button() == Qt.LeftButton:
+                self._drag_active = True
+                self._drag_pos = event.globalPosition().toPoint()
+                self._win_pos = self.window().pos()
+        def mouseMoveEvent(self, event):
+            if self._drag_active:
+                delta = event.globalPosition().toPoint() - self._drag_pos
+                self.window().move(self._win_pos + delta)
+        def mouseReleaseEvent(self, event):
+            self._drag_active = False
+
     class MainWindow(QMainWindow):
         def __init__(self):
             super().__init__()
             self.setWindowTitle("py-cleaner GUI")
             self.setWindowIcon(QIcon())
             self.resize(900, 600)
+            # Ventana borderless
+            self.setWindowFlags(Qt.FramelessWindowHint)
             self.log_widget = LogWidget()
             self.status_bar = QStatusBar()
             self.setStatusBar(self.status_bar)
             self.init_ui()
-            # Mueve la inicialización de entorno activo y python_local antes de update_env_indicators
             self.entorno_activo = "local"  # Puede ser 'local', 'global', 'externo'
             self.python_local = sys.executable
             self.python_externo = None
@@ -258,6 +291,30 @@ def iniciar_gui():
             self.btn_export_log = QPushButton("💾 Exportar Log")
             self.status_bar.addPermanentWidget(self.btn_export_log)
             self.btn_export_log.clicked.connect(self.exportar_log)
+            # Botón salir seguro
+            self.btn_salir.clicked.connect(self.cerrar_seguro)
+            # Triángulo para mover ventana en esquina inferior izquierda
+            self.move_corner = MoveCornerWidget(self)
+            self.move_corner.setFixedSize(24, 24)
+            self.move_corner.setStyleSheet("background: transparent;")
+            self.move_corner.setToolTip("Arrastra para mover la ventana")
+            self.move_corner.raise_()
+            self.move_corner.show()
+
+        def resizeEvent(self, event):
+            super().resizeEvent(event)
+            # Posiciona el triángulo en la esquina inferior izquierda
+            self.move_corner.move(0, self.height() - self.move_corner.height())
+
+        def cerrar_seguro(self):
+            try:
+                # Aquí podrías cerrar conexiones, guardar logs, liberar recursos, etc.
+                self.log_widget.log("Cerrando la aplicación de forma segura...", "info")
+                self.status_bar.showMessage("Cerrando la aplicación...", 2000)
+                QApplication.quit()
+            except Exception as e:
+                self.log_widget.log(f"Error al cerrar: {e}", "err")
+                self.status_bar.showMessage("Error al cerrar la aplicación.", 4000)
 
         def update_env_indicators(self):
             """Actualiza los LEDs y el label del entorno activo de forma robusta y pythonic."""
@@ -457,7 +514,7 @@ def iniciar_gui():
             self.status_bar.showMessage("Creando VENV...", 3000)
             try:
                 # Ejecuta el script en la consola embebida
-                self.tab_console.send_command_from_gui(f"powershell -File Creador VENV.ps1")
+                self.tab_console.send_command_from_gui(f"powershell -File Creador-VENV.ps1")
                 self.log_widget.log("Script de creación ejecutado.", "ok")
                 self.status_bar.showMessage("VENV creado correctamente.", 4000)
                 self.update_env_indicators()
@@ -480,7 +537,7 @@ def iniciar_gui():
             self.status_bar.showMessage("Activando VENV...", 3000)
             try:
                 # Ejecuta el script en la consola embebida
-                self.tab_console.send_command_from_gui(f"powershell -File Activador VENV.ps1")
+                self.tab_console.send_command_from_gui(f"powershell -File Activador-VENV.ps1")
                 self.log_widget.log("Script de activación ejecutado.", "ok")
                 self.status_bar.showMessage("VENV activado correctamente.", 4000)
                 self.update_env_indicators()
@@ -618,6 +675,10 @@ def iniciar_gui():
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()
+    # Manejo de cierre por Ctrl+C
+    def cerrar_por_ctrl_c(sig, frame):
+        window.cerrar_seguro()
+    signal.signal(signal.SIGINT, cerrar_por_ctrl_c)
     app.exec()
 
 # --- Arranque híbrido CLI/GUI ---
