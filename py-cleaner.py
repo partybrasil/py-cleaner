@@ -1,4 +1,3 @@
-
 # --- CLI Original ---
 import os
 import subprocess
@@ -119,11 +118,22 @@ def iniciar_gui():
             super().__init__(parent)
             self.setReadOnly(True)
             self.setStyleSheet("background: #222; color: #eee; font-family: Consolas, monospace; font-size: 13px;")
+            self._log_history = []
         def log(self, msg, level="info"):
             color = {"info": "#8be9fd", "ok": "#50fa7b", "warn": "#f1fa8c", "err": "#ff5555"}.get(level, "#fff")
             emoji = {"info": "ℹ️", "ok": "✅", "warn": "⚠️", "err": "❌"}.get(level, "")
             timestamp = QDateTime.currentDateTime().toString("HH:mm:ss")
-            self.append(f'<span style="color:{color}">{emoji} [{timestamp}] {msg}</span>')
+            html = f'<span style="color:{color}">{emoji} [{timestamp}] {msg}</span>'
+            self.append(html)
+            self._log_history.append(f"[{timestamp}] {emoji} {msg}")
+        def export_log(self, file_path):
+            try:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    for line in self._log_history:
+                        f.write(line + '\n')
+                return True, None
+            except Exception as e:
+                return False, str(e)
 
     class ConsoleWidget(QWidget):
         def __init__(self, parent=None):
@@ -151,7 +161,22 @@ def iniciar_gui():
             import threading
             def run():
                 try:
-                    # Si el comando inicia con 'python' o 'pip', lo redirigimos al python del entorno activo
+                    parts = cmd.strip().split()
+                    if parts[0] in ["python", "pip"]:
+                        parts[0] = self.current_python
+                    proc = subprocess.Popen(parts, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                    for line in proc.stdout:
+                        self.console.appendPlainText(line.rstrip())
+                    for line in proc.stderr:
+                        self.console.appendPlainText(line.rstrip())
+                except Exception as e:
+                    self.console.appendPlainText(f"Error: {e}")
+            threading.Thread(target=run, daemon=True).start()
+        def send_command_from_gui(self, cmd):
+            self.console.appendPlainText(f"> {cmd}")
+            import threading
+            def run():
+                try:
                     parts = cmd.strip().split()
                     if parts[0] in ["python", "pip"]:
                         parts[0] = self.current_python
@@ -174,7 +199,53 @@ def iniciar_gui():
             self.status_bar = QStatusBar()
             self.setStatusBar(self.status_bar)
             self.init_ui()
+            # Mueve la inicialización de entorno activo y python_local antes de update_env_indicators
+            self.entorno_activo = "local"  # Puede ser 'local', 'global', 'externo'
+            self.python_local = sys.executable
+            self.python_externo = None
             self.update_env_indicators()
+            # Botón exportar log
+            self.btn_export_log = QPushButton("💾 Exportar Log")
+            self.status_bar.addPermanentWidget(self.btn_export_log)
+            self.btn_export_log.clicked.connect(self.exportar_log)
+
+        def update_env_indicators(self):
+            """Actualiza los LEDs y el label del entorno activo de forma robusta y pythonic."""
+            if self.entorno_activo == "local":
+                self.led_venv.set_on()
+                self.led_global.set_off()
+                self.led_externo.set_off()
+                self.lbl_venv_path.setText("VENV LOCAL activo")
+            elif self.entorno_activo == "global":
+                self.led_venv.set_off()
+                self.led_global.set_on()
+                self.led_externo.set_off()
+                self.lbl_venv_path.setText("Python GLOBAL activo")
+            elif self.entorno_activo == "externo":
+                self.led_venv.set_off()
+                self.led_global.set_off()
+                self.led_externo.set_on()
+                self.lbl_venv_path.setText(f"VENV externo activo: {self.python_externo}")
+            else:
+                self.led_venv.set_off()
+                self.led_global.set_off()
+                self.led_externo.set_off()
+                self.lbl_venv_path.setText("Sin entorno activo")
+
+        def exportar_log(self):
+            from PySide6.QtWidgets import QFileDialog
+            file_path, _ = QFileDialog.getSaveFileName(self, "Exportar Log", "py-cleaner-log.txt", "Archivos de texto (*.txt)")
+            if not file_path:
+                self.status_bar.showMessage("Exportación de log cancelada.", 3000)
+                self.log_widget.log("Exportación de log cancelada por el usuario.", "warn")
+                return
+            ok, err = self.log_widget.export_log(file_path)
+            if ok:
+                self.status_bar.showMessage(f"Log exportado a {file_path}", 4000)
+                self.log_widget.log(f"Log exportado a {file_path}", "ok")
+            else:
+                self.status_bar.showMessage(f"Error al exportar log: {err}", 4000)
+                self.log_widget.log(f"Error al exportar log: {err}", "err")
 
         def init_ui(self):
             main_layout = QVBoxLayout()
@@ -253,6 +324,11 @@ def iniciar_gui():
             self.btn_global.clicked.connect(self.cargar_global)
             self.btn_local.clicked.connect(self.cargar_local)
         def cargar_global(self):
+            reply = QMessageBox.question(self, "Confirmación", "¿Seguro que deseas cambiar al entorno GLOBAL?", QMessageBox.Yes | QMessageBox.No)
+            if reply != QMessageBox.Yes:
+                self.status_bar.showMessage("Cambio a entorno GLOBAL cancelado.", 3000)
+                self.log_widget.log("Cambio a entorno GLOBAL cancelado por el usuario.", "warn")
+                return
             self.entorno_activo = "global"
             self.tab_console.set_python(sys.base_prefix + ("/python.exe" if os.name == "nt" else "/bin/python"))
             self.led_global.set_on()
@@ -260,8 +336,14 @@ def iniciar_gui():
             self.led_externo.set_off()
             self.lbl_venv_path.setText("Python GLOBAL activo")
             self.log_widget.log("Cambiado a entorno GLOBAL", "info")
+            self.status_bar.showMessage("Entorno GLOBAL activo.", 4000)
 
         def cargar_local(self):
+            reply = QMessageBox.question(self, "Confirmación", "¿Seguro que deseas cambiar al entorno LOCAL (VENV)?", QMessageBox.Yes | QMessageBox.No)
+            if reply != QMessageBox.Yes:
+                self.status_bar.showMessage("Cambio a entorno LOCAL cancelado.", 3000)
+                self.log_widget.log("Cambio a entorno LOCAL cancelado por el usuario.", "warn")
+                return
             self.entorno_activo = "local"
             self.tab_console.set_python(self.python_local)
             self.led_global.set_off()
@@ -269,111 +351,115 @@ def iniciar_gui():
             self.led_externo.set_off()
             self.lbl_venv_path.setText("VENV LOCAL activo")
             self.log_widget.log("Cambiado a entorno LOCAL", "info")
+            self.status_bar.showMessage("Entorno LOCAL activo.", 4000)
+            # Elimina duplicación de widgets y layouts
+            # Solo actualiza los indicadores y el estado, sin reconstruir el layout ni widgets
 
-            # Botones de operaciones
-            btn_layout = QHBoxLayout()
-            self.btn_crear_venv = QPushButton("🆕 Crear VENV")
-            self.btn_activador = QPushButton("⚡ Activar VENV")
-            self.btn_reporte = QPushButton("📄 Generar Reporte")
-            self.btn_uninstall = QPushButton("🧹 Desinstalar Dependencias")
-            self.btn_check = QPushButton("🔍 Verificar Entorno")
-            self.btn_manual = QPushButton("🛠️ Comandos Manuales")
-            self.btn_salir = QPushButton("🚪 Salir")
-            for btn in [self.btn_crear_venv, self.btn_activador, self.btn_reporte, self.btn_uninstall, self.btn_check, self.btn_manual, self.btn_salir]:
-                btn.setMinimumHeight(40)
-                btn_layout.addWidget(btn)
-            main_layout.addLayout(btn_layout)
-
-            # Panel dinámico (tabla de dependencias, comandos, etc.)
-            self.panel = QWidget()
-            self.panel_layout = QVBoxLayout()
-            self.panel.setLayout(self.panel_layout)
-            main_layout.addWidget(self.panel)
-
-            # Log de operaciones
-            main_layout.addWidget(QLabel("Log de Operaciones:"))
-            main_layout.addWidget(self.log_widget)
-
-            # Widget central
-            central = QWidget()
-            central.setLayout(main_layout)
-            self.setCentralWidget(central)
-
-            # Conexiones
-            self.btn_crear_venv.clicked.connect(self.crear_venv)
-            self.btn_activador.clicked.connect(self.activar_venv)
-            self.btn_cargar_venv.clicked.connect(self.cargar_venv_externo)
         def cargar_venv_externo(self):
             from PySide6.QtWidgets import QFileDialog
             venv_dir = QFileDialog.getExistingDirectory(self, "Selecciona la carpeta del VENV")
-            if venv_dir:
-                posibles = ["Scripts/python.exe", "bin/python", "bin/python3"]
-                encontrado = False
-                for rel in posibles:
-                    python_path = os.path.join(venv_dir, rel)
-                    if os.path.exists(python_path):
-                        self.python_externo = python_path
-                        self.entorno_activo = "externo"
-                        self.tab_console.set_python(python_path)
-                        self.led_global.set_off()
-                        self.led_venv.set_off()
-                        self.led_externo.set_on()
-                        self.lbl_venv_path.setText(f"VENV externo activo: {venv_dir}")
-                        self.log_widget.log(f"VENV externo cargado: {venv_dir}", "ok")
-                        encontrado = True
-                        break
-                if not encontrado:
-                    self.lbl_venv_path.setText("VENV no válido")
-                    self.log_widget.log(f"La carpeta seleccionada no es un VENV válido: {venv_dir}", "err")
+            if not venv_dir:
+                self.status_bar.showMessage("Carga de VENV externo cancelada.", 3000)
+                self.log_widget.log("Carga de VENV externo cancelada por el usuario.", "warn")
+                return
+            # Validación avanzada de venv
+            posibles = ["Scripts/python.exe", "bin/python", "bin/python3"]
+            encontrado = False
+            for rel in posibles:
+                python_path = os.path.join(venv_dir, rel)
+                if os.path.exists(python_path):
+                    # Validar estructura de venv
+                    reqs = ["pyvenv.cfg", "Scripts", "Lib"] if os.name == "nt" else ["pyvenv.cfg", "bin", "lib"]
+                    valid = all(os.path.exists(os.path.join(venv_dir, r)) for r in reqs)
+                    if not valid:
+                        self.lbl_venv_path.setText("Estructura de VENV inválida")
+                        self.log_widget.log(f"La carpeta seleccionada no tiene estructura válida de VENV: {venv_dir}", "err")
+                        self.status_bar.showMessage("Estructura de VENV inválida.", 4000)
+                        return
+                    reply = QMessageBox.question(self, "Confirmación", f"¿Seguro que deseas cargar el VENV externo?\n{venv_dir}", QMessageBox.Yes | QMessageBox.No)
+                    if reply != QMessageBox.Yes:
+                        self.status_bar.showMessage("Carga de VENV externo cancelada.", 3000)
+                        self.log_widget.log("Carga de VENV externo cancelada por el usuario.", "warn")
+                        return
+                    self.python_externo = python_path
+                    self.entorno_activo = "externo"
+                    self.tab_console.set_python(python_path)
+                    self.led_global.set_off()
+                    self.led_venv.set_off()
+                    self.led_externo.set_on()
+                    self.lbl_venv_path.setText(f"VENV externo activo: {venv_dir}")
+                    self.log_widget.log(f"VENV externo cargado: {venv_dir}", "ok")
+                    self.status_bar.showMessage("VENV externo cargado correctamente.", 4000)
+                    encontrado = True
+                    break
+            if not encontrado:
+                self.lbl_venv_path.setText("VENV no válido")
+                self.log_widget.log(f"La carpeta seleccionada no es un VENV válido: {venv_dir}", "err")
+                self.status_bar.showMessage("VENV externo no válido.", 4000)
+
         def crear_venv(self):
+            reply = QMessageBox.question(self, "Confirmación", "¿Seguro que deseas crear un nuevo VENV?", QMessageBox.Yes | QMessageBox.No)
+            if reply != QMessageBox.Yes:
+                self.status_bar.showMessage("Creación de VENV cancelada.", 3000)
+                self.log_widget.log("Creación de VENV cancelada por el usuario.", "warn")
+                return
             self.log_widget.log("Ejecutando script de creación de VENV...", "info")
+            self.status_bar.showMessage("Creando VENV...", 3000)
             try:
-                subprocess.run(['powershell', '-File', 'Creador VENV.ps1'])
+                # Ejecuta el script en la consola embebida
+                self.tab_console.send_command_from_gui(f"powershell -File Creador VENV.ps1")
                 self.log_widget.log("Script de creación ejecutado.", "ok")
+                self.status_bar.showMessage("VENV creado correctamente.", 4000)
                 self.update_env_indicators()
             except Exception as e:
                 self.log_widget.log(f"Error al crear VENV: {e}", "err")
+                self.status_bar.showMessage("Error al crear VENV.", 4000)
             self.btn_reporte.clicked.connect(self.generar_reporte)
             self.btn_uninstall.clicked.connect(self.desinstalar_dependencias)
             self.btn_check.clicked.connect(self.verificar_entorno)
             self.btn_manual.clicked.connect(self.comandos_manuales)
             self.btn_salir.clicked.connect(self.close)
 
-        def update_env_indicators(self):
-            # Actualiza los LEDs según el entorno activo
-            if self.entorno_activo == "local":
-                self.led_venv.set_on()
-                self.led_global.set_off()
-                self.led_externo.set_off()
-                self.status_bar.showMessage("Entorno Virtual Activo", 5000)
-            elif self.entorno_activo == "global":
-                self.led_venv.set_off()
-                self.led_global.set_on()
-                self.led_externo.set_off()
-                self.status_bar.showMessage("Entorno Global Activo", 5000)
-            elif self.entorno_activo == "externo":
-                self.led_venv.set_off()
-                self.led_global.set_off()
-                self.led_externo.set_on()
-                self.status_bar.showMessage("VENV Externo Activo", 5000)
-
         def activar_venv(self):
+            reply = QMessageBox.question(self, "Confirmación", "¿Seguro que deseas activar el VENV local?", QMessageBox.Yes | QMessageBox.No)
+            if reply != QMessageBox.Yes:
+                self.status_bar.showMessage("Activación de VENV cancelada.", 3000)
+                self.log_widget.log("Activación de VENV cancelada por el usuario.", "warn")
+                return
             self.log_widget.log("Ejecutando script de activación de VENV...", "info")
+            self.status_bar.showMessage("Activando VENV...", 3000)
             try:
-                execute_activator()
+                # Ejecuta el script en la consola embebida
+                self.tab_console.send_command_from_gui(f"powershell -File Activador VENV.ps1")
                 self.log_widget.log("Script de activación ejecutado.", "ok")
+                self.status_bar.showMessage("VENV activado correctamente.", 4000)
                 self.update_env_indicators()
             except Exception as e:
                 self.log_widget.log(f"Error al activar VENV: {e}", "err")
+                self.status_bar.showMessage("Error al activar VENV.", 4000)
+
+        def verificar_entorno(self):
+            self.log_widget.log("Verificando entorno de Python...", "info")
+            self.status_bar.showMessage("Verificando entorno de Python...", 3000)
+            try:
+                self.tab_console.send_command_from_gui(f"{self.tab_console.current_python} -m pip list")
+                self.log_widget.log("Entorno verificado.", "ok")
+                self.status_bar.showMessage("Entorno verificado correctamente.", 4000)
+            except Exception as e:
+                self.log_widget.log(f"Error al verificar entorno: {e}", "err")
+                self.status_bar.showMessage("Error al verificar entorno.", 4000)
 
         def generar_reporte(self):
             self.log_widget.log("Generando reporte de dependencias...", "info")
+            self.status_bar.showMessage("Generando reporte de dependencias...", 3000)
             try:
-                generate_report()
+                self.tab_console.send_command_from_gui(f"{self.tab_console.current_python} -m pip freeze > pyREPORT.txt")
                 self.log_widget.log("Reporte generado como pyREPORT.txt.", "ok")
+                self.status_bar.showMessage("Reporte generado correctamente.", 4000)
                 self.mostrar_dependencias()
             except Exception as e:
                 self.log_widget.log(f"Error al generar reporte: {e}", "err")
+                self.status_bar.showMessage("Error al generar reporte.", 4000)
 
         def mostrar_dependencias(self):
             self.panel_layout.takeAt(0)
@@ -396,22 +482,67 @@ def iniciar_gui():
                 self.panel_layout.addWidget(QLabel(f"Error al leer pyREPORT.txt: {e}"))
 
         def desinstalar_dependencias(self):
+            reply = QMessageBox.question(self, "Desinstalación", "¿Deseas seleccionar los paquetes a desinstalar uno a uno? (Sí = selectivo, No = todos)", QMessageBox.Yes | QMessageBox.No)
+            if reply == QMessageBox.Yes:
+                # Modo selectivo: mostrar diálogo con los paquetes
+                try:
+                    with open('pyREPORT.txt', 'r') as f:
+                        deps = [line.strip().split('==')[0] if '==' in line else line.strip() for line in f if line.strip()]
+                    if not deps:
+                        self.log_widget.log("No hay dependencias en pyREPORT.txt.", "warn")
+                        self.status_bar.showMessage("No hay dependencias en pyREPORT.txt.", 4000)
+                        return
+                    # Diálogo de selección
+                    from PySide6.QtWidgets import QInputDialog
+                    pkg_str = ' '.join(deps)
+                    seleccion, ok = QInputDialog.getText(self, "Seleccionar paquetes", f"Paquetes disponibles:\n{pkg_str}\n\nEscribe los nombres de los paquetes a desinstalar separados por espacio:")
+                    if not ok or not seleccion.strip():
+                        self.log_widget.log("Desinstalación selectiva cancelada por el usuario.", "warn")
+                        self.status_bar.showMessage("Desinstalación selectiva cancelada.", 3000)
+                        return
+                    pkgs = seleccion.strip().split()
+                    self.log_widget.log(f"Desinstalando selectivamente: {' '.join(pkgs)}", "warn")
+                    self.status_bar.showMessage("Desinstalando paquetes seleccionados...", 3000)
+                    for dep in pkgs:
+                        subprocess.run([self.tab_console.current_python, '-m', 'pip', 'uninstall', '-y', dep])
+                        self.log_widget.log(f"Desinstalado: {dep}", "ok")
+                    self.status_bar.showMessage("Desinstalación selectiva finalizada.", 4000)
+                except Exception as e:
+                    self.log_widget.log(f"Error en desinstalación selectiva: {e}", "err")
+                    self.status_bar.showMessage("Error en desinstalación selectiva.", 4000)
+                return
+            # Modo normal: desinstalar todos
+            reply2 = QMessageBox.question(self, "Confirmación", "¿Seguro que deseas desinstalar todas las dependencias listadas en pyREPORT.txt?", QMessageBox.Yes | QMessageBox.No)
+            if reply2 != QMessageBox.Yes:
+                self.status_bar.showMessage("Desinstalación cancelada.", 3000)
+                self.log_widget.log("Desinstalación de dependencias cancelada por el usuario.", "warn")
+                return
             self.log_widget.log("Desinstalando dependencias...", "warn")
+            self.status_bar.showMessage("Desinstalando dependencias...", 3000)
             try:
                 uninstall_dependencies()
                 self.log_widget.log("Dependencias desinstaladas.", "ok")
+                self.status_bar.showMessage("Dependencias desinstaladas correctamente.", 4000)
             except Exception as e:
                 self.log_widget.log(f"Error al desinstalar dependencias: {e}", "err")
-
-        def verificar_entorno(self):
-            self.log_widget.log("Verificando entorno de Python...", "info")
-            try:
-                check_environment()
-                self.log_widget.log("Entorno verificado.", "ok")
-            except Exception as e:
-                self.log_widget.log(f"Error al verificar entorno: {e}", "err")
+                self.status_bar.showMessage("Error al desinstalar dependencias.", 4000)
 
         def comandos_manuales(self):
+            # Imprime en el log la misma información que la función CLI manual_command
+            info = [
+                "\nCrear Ambiente Virtual VENV:",
+                "python -m venv .venv",
+                "\nActivar Ambiente Virtual VENV:",
+                ".\\.venv\\Scripts\\Activate",
+                "\nDesactivar Ambiente Virtual VENV:",
+                "deactivate",
+                "\nVerificar y manejar Politica de Ejecucion de Scripts en PowerShell:",
+                "Set-ExecutionPolicy (Restricted, AllSigned, RemoteSigned, Unrestricted)"
+            ]
+            for line in info:
+                self.log_widget.log(line, "info")
+            self.status_bar.showMessage("Comandos manuales listados en el log.", 4000)
+            # ...sigue mostrando el panel de comandos para copiar...
             self.panel_layout.takeAt(0)
             group = QGroupBox("Comandos Manuales Útiles")
             layout = QVBoxLayout()
