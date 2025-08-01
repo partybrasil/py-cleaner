@@ -142,14 +142,34 @@ def iniciar_gui():
             self.console = QPlainTextEdit()
             self.console.setReadOnly(True)
             self.console.setStyleSheet("background: #111; color: #eee; font-family: Consolas, monospace; font-size: 13px;")
+            # Botón de refresco discreto
+            self.btn_refresh = QPushButton("🔄")
+            self.btn_refresh.setFixedSize(32, 32)
+            self.btn_refresh.setToolTip("Reiniciar Terminal/Consola InAPP")
+            self.btn_refresh.setStyleSheet("background: #222; color: #8be9fd; border-radius: 8px; font-size: 18px;")
+            self.btn_refresh.clicked.connect(self.reiniciar_consola)
+
             self.input_line = QLineEdit()
             self.input_line.setPlaceholderText("Escribe un comando y presiona Enter...")
             self.input_line.returnPressed.connect(self.send_command)
+
+            # Layout horizontal para botón y input
+            input_layout = QHBoxLayout()
+            input_layout.addWidget(self.btn_refresh)
+            input_layout.addWidget(self.input_line)
+
             layout.addWidget(self.console)
-            layout.addWidget(self.input_line)
+            layout.addLayout(input_layout)
             self.setLayout(layout)
             self.process = None
             self.current_python = sys.executable
+            self.reiniciar_consola()
+
+        def reiniciar_consola(self):
+            """Limpia la consola y muestra el prompt y el path de Python activo."""
+            self.console.clear()
+            self.console.appendPlainText(f"🔄 Terminal InAPP listo. Python activo: {self.current_python}")
+            self.console.appendPlainText("> ")
         def set_python(self, python_path):
             self.current_python = python_path
         def send_command(self):
@@ -164,13 +184,30 @@ def iniciar_gui():
                     parts = cmd.strip().split()
                     if parts[0] in ["python", "pip"]:
                         parts[0] = self.current_python
-                    proc = subprocess.Popen(parts, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                    # Detecta si el comando es interactivo (usa 'input')
+                    # Si es un script python, busca si contiene 'input('
+                    is_interactive = False
+                    if parts[0].endswith("python.exe") and len(parts) > 1 and parts[1] == "-m":
+                        # No podemos saber si el módulo usa input, así que asumimos no interactivo
+                        is_interactive = False
+                    elif parts[0].endswith("python.exe") and len(parts) > 1 and parts[1].endswith(".py"):
+                        try:
+                            with open(parts[1], "r", encoding="utf-8") as f:
+                                if "input(" in f.read():
+                                    is_interactive = True
+                        except Exception:
+                            pass
+                    proc = subprocess.Popen(parts, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE if is_interactive else None, text=True)
                     for line in proc.stdout:
                         self.console.appendPlainText(line.rstrip())
                     for line in proc.stderr:
                         self.console.appendPlainText(line.rstrip())
+                    # Si no es interactivo, muestra el prompt
+                    if not is_interactive:
+                        self.console.appendPlainText("> ")
                 except Exception as e:
                     self.console.appendPlainText(f"Error: {e}")
+                    self.console.appendPlainText("> ")
             threading.Thread(target=run, daemon=True).start()
         def send_command_from_gui(self, cmd):
             self.console.appendPlainText(f"> {cmd}")
@@ -180,13 +217,26 @@ def iniciar_gui():
                     parts = cmd.strip().split()
                     if parts[0] in ["python", "pip"]:
                         parts[0] = self.current_python
-                    proc = subprocess.Popen(parts, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                    is_interactive = False
+                    if parts[0].endswith("python.exe") and len(parts) > 1 and parts[1] == "-m":
+                        is_interactive = False
+                    elif parts[0].endswith("python.exe") and len(parts) > 1 and parts[1].endswith(".py"):
+                        try:
+                            with open(parts[1], "r", encoding="utf-8") as f:
+                                if "input(" in f.read():
+                                    is_interactive = True
+                        except Exception:
+                            pass
+                    proc = subprocess.Popen(parts, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE if is_interactive else None, text=True)
                     for line in proc.stdout:
                         self.console.appendPlainText(line.rstrip())
                     for line in proc.stderr:
                         self.console.appendPlainText(line.rstrip())
+                    if not is_interactive:
+                        self.console.appendPlainText("> ")
                 except Exception as e:
                     self.console.appendPlainText(f"Error: {e}")
+                    self.console.appendPlainText("> ")
             threading.Thread(target=run, daemon=True).start()
 
     class MainWindow(QMainWindow):
