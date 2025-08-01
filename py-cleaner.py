@@ -96,13 +96,13 @@ def iniciar_gui():
     import sys
     from PySide6.QtWidgets import (
         QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTextEdit,
-        QTableWidget, QTableWidgetItem, QStatusBar, QDialog, QMessageBox, QCheckBox, QGroupBox, QGridLayout, QLineEdit
+        QTableWidget, QTableWidgetItem, QStatusBar, QDialog, QMessageBox, QCheckBox, QGroupBox, QGridLayout, QLineEdit, QTabWidget, QPlainTextEdit
     )
     from PySide6.QtGui import QIcon, QColor, QPalette
     from PySide6.QtCore import Qt, QTimer, QDateTime
 
     class LedIndicator(QLabel):
-        def __init__(self, color_off=QColor('gray'), color_on=QColor('green'), size=18, parent=None):
+        def __init__(self, color_off=QColor('red'), color_on=QColor('yellow'), size=18, parent=None):
             super().__init__(parent)
             self.color_off = color_off
             self.color_on = color_on
@@ -125,6 +125,45 @@ def iniciar_gui():
             timestamp = QDateTime.currentDateTime().toString("HH:mm:ss")
             self.append(f'<span style="color:{color}">{emoji} [{timestamp}] {msg}</span>')
 
+    class ConsoleWidget(QWidget):
+        def __init__(self, parent=None):
+            super().__init__(parent)
+            layout = QVBoxLayout()
+            self.console = QPlainTextEdit()
+            self.console.setReadOnly(True)
+            self.console.setStyleSheet("background: #111; color: #eee; font-family: Consolas, monospace; font-size: 13px;")
+            self.input_line = QLineEdit()
+            self.input_line.setPlaceholderText("Escribe un comando y presiona Enter...")
+            self.input_line.returnPressed.connect(self.send_command)
+            layout.addWidget(self.console)
+            layout.addWidget(self.input_line)
+            self.setLayout(layout)
+            self.process = None
+            self.current_python = sys.executable
+        def set_python(self, python_path):
+            self.current_python = python_path
+        def send_command(self):
+            cmd = self.input_line.text()
+            if not cmd.strip():
+                return
+            self.console.appendPlainText(f"> {cmd}")
+            self.input_line.clear()
+            import threading
+            def run():
+                try:
+                    # Si el comando inicia con 'python' o 'pip', lo redirigimos al python del entorno activo
+                    parts = cmd.strip().split()
+                    if parts[0] in ["python", "pip"]:
+                        parts[0] = self.current_python
+                    proc = subprocess.Popen(parts, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                    for line in proc.stdout:
+                        self.console.appendPlainText(line.rstrip())
+                    for line in proc.stderr:
+                        self.console.appendPlainText(line.rstrip())
+                except Exception as e:
+                    self.console.appendPlainText(f"Error: {e}")
+            threading.Thread(target=run, daemon=True).start()
+
     class MainWindow(QMainWindow):
         def __init__(self):
             super().__init__()
@@ -141,16 +180,95 @@ def iniciar_gui():
             main_layout = QVBoxLayout()
             # Indicadores de entorno
             env_layout = QHBoxLayout()
-            self.led_venv = LedIndicator(color_on=QColor('green'))
-            self.led_global = LedIndicator(color_on=QColor('red'))
+            self.led_venv = LedIndicator()
+            self.led_global = LedIndicator()
+            self.led_externo = LedIndicator()
             env_layout.addWidget(QLabel("VIRTUAL ENV:"))
             env_layout.addWidget(self.led_venv)
             env_layout.addWidget(QLabel("GLOBAL ENV:"))
             env_layout.addWidget(self.led_global)
+            env_layout.addWidget(QLabel("EXTERNO:"))
+            env_layout.addWidget(self.led_externo)
             env_layout.addStretch()
             self.lbl_python = QLabel(f"Python: {sys.version.split()[0]}")
             env_layout.addWidget(self.lbl_python)
+            # Botones para alternar ambientes
+            self.btn_cargar_venv = QPushButton("📂 Cargar VENV externo")
+            self.btn_global = QPushButton("🌐 Cargar VENV GLOBAL")
+            self.btn_local = QPushButton("📁 Cargar VENV LOCAL")
+            env_layout.addWidget(self.btn_cargar_venv)
+            env_layout.addWidget(self.btn_global)
+            env_layout.addWidget(self.btn_local)
+            # Label para mostrar el path del venv cargado
+            self.lbl_venv_path = QLabel("")
+            env_layout.addWidget(self.lbl_venv_path)
             main_layout.addLayout(env_layout)
+
+            # Pestañas: Log y Consola
+            self.tabs = QTabWidget()
+            self.tab_log = QWidget()
+            log_layout = QVBoxLayout()
+            log_layout.addWidget(QLabel("Log de Operaciones:"))
+            log_layout.addWidget(self.log_widget)
+            self.tab_log.setLayout(log_layout)
+            self.tab_console = ConsoleWidget()
+            self.tabs.addTab(self.tab_log, "Log de Operaciones")
+            self.tabs.addTab(self.tab_console, "Consola")
+            main_layout.addWidget(self.tabs)
+
+            # Botones de operaciones
+            btn_layout = QHBoxLayout()
+            self.btn_crear_venv = QPushButton("🆕 Crear VENV")
+            self.btn_activador = QPushButton("⚡ Activar VENV")
+            self.btn_reporte = QPushButton("📄 Generar Reporte")
+            self.btn_uninstall = QPushButton("🧹 Desinstalar Dependencias")
+            self.btn_check = QPushButton("🔍 Verificar Entorno")
+            self.btn_manual = QPushButton("🛠️ Comandos Manuales")
+            self.btn_salir = QPushButton("🚪 Salir")
+            for btn in [self.btn_crear_venv, self.btn_activador, self.btn_reporte, self.btn_uninstall, self.btn_check, self.btn_manual, self.btn_salir]:
+                btn.setMinimumHeight(40)
+                btn_layout.addWidget(btn)
+            main_layout.addLayout(btn_layout)
+
+            # Panel dinámico (tabla de dependencias, comandos, etc.)
+            self.panel = QWidget()
+            self.panel_layout = QVBoxLayout()
+            self.panel.setLayout(self.panel_layout)
+            main_layout.addWidget(self.panel)
+
+            # Widget central
+            central = QWidget()
+            central.setLayout(main_layout)
+            self.setCentralWidget(central)
+
+            # Estado de entorno activo
+            self.entorno_activo = "local"  # Puede ser 'local', 'global', 'externo'
+            self.python_local = sys.executable
+            self.python_externo = None
+
+            # Conexiones
+            self.btn_crear_venv.clicked.connect(self.crear_venv)
+            self.btn_activador.clicked.connect(self.activar_venv)
+            self.btn_cargar_venv.clicked.connect(self.cargar_venv_externo)
+            self.btn_global.clicked.connect(self.cargar_global)
+            self.btn_local.clicked.connect(self.cargar_local)
+        def cargar_global(self):
+            self.entorno_activo = "global"
+            self.tab_console.set_python(sys.base_prefix + ("/python.exe" if os.name == "nt" else "/bin/python"))
+            self.led_global.set_on()
+            self.led_venv.set_off()
+            self.led_externo.set_off()
+            self.lbl_venv_path.setText("Python GLOBAL activo")
+            self.log_widget.log("Cambiado a entorno GLOBAL", "info")
+
+        def cargar_local(self):
+            self.entorno_activo = "local"
+            self.tab_console.set_python(self.python_local)
+            self.led_global.set_off()
+            self.led_venv.set_on()
+            self.led_externo.set_off()
+            self.lbl_venv_path.setText("VENV LOCAL activo")
+            self.log_widget.log("Cambiado a entorno LOCAL", "info")
 
             # Botones de operaciones
             btn_layout = QHBoxLayout()
@@ -184,6 +302,29 @@ def iniciar_gui():
             # Conexiones
             self.btn_crear_venv.clicked.connect(self.crear_venv)
             self.btn_activador.clicked.connect(self.activar_venv)
+            self.btn_cargar_venv.clicked.connect(self.cargar_venv_externo)
+        def cargar_venv_externo(self):
+            from PySide6.QtWidgets import QFileDialog
+            venv_dir = QFileDialog.getExistingDirectory(self, "Selecciona la carpeta del VENV")
+            if venv_dir:
+                posibles = ["Scripts/python.exe", "bin/python", "bin/python3"]
+                encontrado = False
+                for rel in posibles:
+                    python_path = os.path.join(venv_dir, rel)
+                    if os.path.exists(python_path):
+                        self.python_externo = python_path
+                        self.entorno_activo = "externo"
+                        self.tab_console.set_python(python_path)
+                        self.led_global.set_off()
+                        self.led_venv.set_off()
+                        self.led_externo.set_on()
+                        self.lbl_venv_path.setText(f"VENV externo activo: {venv_dir}")
+                        self.log_widget.log(f"VENV externo cargado: {venv_dir}", "ok")
+                        encontrado = True
+                        break
+                if not encontrado:
+                    self.lbl_venv_path.setText("VENV no válido")
+                    self.log_widget.log(f"La carpeta seleccionada no es un VENV válido: {venv_dir}", "err")
         def crear_venv(self):
             self.log_widget.log("Ejecutando script de creación de VENV...", "info")
             try:
@@ -199,14 +340,22 @@ def iniciar_gui():
             self.btn_salir.clicked.connect(self.close)
 
         def update_env_indicators(self):
-            if is_venv_active():
+            # Actualiza los LEDs según el entorno activo
+            if self.entorno_activo == "local":
                 self.led_venv.set_on()
                 self.led_global.set_off()
+                self.led_externo.set_off()
                 self.status_bar.showMessage("Entorno Virtual Activo", 5000)
-            else:
+            elif self.entorno_activo == "global":
                 self.led_venv.set_off()
                 self.led_global.set_on()
+                self.led_externo.set_off()
                 self.status_bar.showMessage("Entorno Global Activo", 5000)
+            elif self.entorno_activo == "externo":
+                self.led_venv.set_off()
+                self.led_global.set_off()
+                self.led_externo.set_on()
+                self.status_bar.showMessage("VENV Externo Activo", 5000)
 
         def activar_venv(self):
             self.log_widget.log("Ejecutando script de activación de VENV...", "info")
