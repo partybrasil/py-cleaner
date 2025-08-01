@@ -35,7 +35,21 @@ def check_environment():
     print("check_environment() ejecutado correctamente.")
 
 def execute_activator():
-    subprocess.run(['powershell', '-File', 'Activador-VENV.ps1'])
+    mensaje = (
+        "ℹ️ La activación del entorno virtual solo afecta al terminal externo. "
+        "Las operaciones posteriores se ejecutarán en ese terminal. "
+        "La consola embebida no puede cambiar el entorno Python activo de la app. "
+        "Por favor, continúe en el terminal externo para trabajar con el venv activado."
+    )
+    if 'window' in globals():
+        window.log_widget.log(mensaje, "warn")
+        window.tab_console.console.appendPlainText(mensaje)
+        window.tab_console.send_command_from_gui("powershell -File Activador-VENV.ps1")
+    else:
+        print(mensaje)
+        result = subprocess.run(['powershell', '-File', 'Activador-VENV.ps1'], capture_output=True, text=True)
+        print(result.stdout)
+        print(result.stderr)
     print("execute_activator() ejecutado correctamente.")
 
 def manual_command():
@@ -501,10 +515,16 @@ def iniciar_gui():
                 self.status_bar.showMessage("Creación de VENV cancelada.", 3000)
                 self.log_widget.log("Creación de VENV cancelada por el usuario.", "warn")
                 return
-            self.log_widget.log("Ejecutando script de creación de VENV...", "info")
-            self.status_bar.showMessage("Creando VENV...", 3000)
+            mensaje = (
+                "ℹ️ La creación del entorno virtual solo afecta al terminal externo. "
+                "Las operaciones posteriores se ejecutarán en ese terminal. "
+                "La consola embebida no puede cambiar el entorno Python activo de la app. "
+                "Por favor, continúe en el terminal externo para trabajar con el venv creado."
+            )
+            self.log_widget.log(mensaje, "warn")
+            self.status_bar.showMessage("Limitación: creación solo en terminal externo.", 6000)
             try:
-                # Ejecuta el script en la consola embebida
+                self.tab_console.console.appendPlainText(mensaje)
                 self.tab_console.send_command_from_gui(f"powershell -File Creador-VENV.ps1")
                 self.log_widget.log("Script de creación ejecutado.", "ok")
                 self.status_bar.showMessage("VENV creado correctamente.", 4000)
@@ -524,10 +544,16 @@ def iniciar_gui():
                 self.status_bar.showMessage("Activación de VENV cancelada.", 3000)
                 self.log_widget.log("Activación de VENV cancelada por el usuario.", "warn")
                 return
-            self.log_widget.log("Ejecutando script de activación de VENV...", "info")
-            self.status_bar.showMessage("Activando VENV...", 3000)
+            mensaje = (
+                "ℹ️ La activación del entorno virtual solo afecta al terminal externo. "
+                "Las operaciones posteriores se ejecutarán en ese terminal. "
+                "La consola embebida no puede cambiar el entorno Python activo de la app. "
+                "Por favor, continúe en el terminal externo para trabajar con el venv activado."
+            )
+            self.log_widget.log(mensaje, "warn")
+            self.status_bar.showMessage("Limitación: activación solo en terminal externo.", 6000)
             try:
-                # Ejecuta el script en la consola embebida
+                self.tab_console.console.appendPlainText(mensaje)
                 self.tab_console.send_command_from_gui(f"powershell -File Activador-VENV.ps1")
                 self.log_widget.log("Script de activación ejecutado.", "ok")
                 self.status_bar.showMessage("VENV activado correctamente.", 4000)
