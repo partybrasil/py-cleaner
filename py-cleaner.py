@@ -451,16 +451,7 @@ def iniciar_gui():
                 self.status_bar.showMessage("Cambio a entorno LOCAL cancelado.", 3000)
                 self.log_widget.log("Cambio a entorno LOCAL cancelado por el usuario.", "warn")
                 return
-            self.entorno_activo = "local"
-            self.tab_console.set_python(self.python_local)
-            self.led_global.set_off()
-            self.led_venv.set_on()
-            self.led_externo.set_off()
-            self.lbl_venv_path.setText("VENV LOCAL activo")
-            self.log_widget.log("Cambiado a entorno LOCAL", "info")
-            self.status_bar.showMessage("Entorno LOCAL activo.", 4000)
-            # Elimina duplicación de widgets y layouts
-            # Solo actualiza los indicadores y el estado, sin reconstruir el layout ni widgets
+            self.activar_venv()
 
         def cargar_venv_externo(self):
             from PySide6.QtWidgets import QFileDialog
