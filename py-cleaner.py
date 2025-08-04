@@ -30,6 +30,168 @@ def uninstall_dependencies():
         subprocess.run([sys.executable, '-m', 'pip', 'uninstall', '-y', dep.strip()])
     print("uninstall_dependencies() ejecutado correctamente.")
 
+def uninstall_dependencies_selective():
+    """Desinstala dependencias de forma selectiva, permitiendo al usuario elegir cuáles mantener."""
+    print("\n🧹 === DESINSTALACIÓN SELECTIVA DE DEPENDENCIAS ===")
+    
+    # Verificar si existe el reporte, si no, generarlo
+    if not os.path.exists('pyREPORT.txt'):
+        print("⚠️ pyREPORT.txt no encontrado. Generando reporte automáticamente...")
+        generate_report()
+    
+    try:
+        with open('pyREPORT.txt', 'r', encoding='utf-8') as report_file:
+            dependencies = [line.strip() for line in report_file.readlines() if line.strip()]
+    except Exception as e:
+        print(f"❌ Error al leer pyREPORT.txt: {e}")
+        return
+    
+    if not dependencies:
+        print("ℹ️ No se encontraron dependencias instaladas.")
+        return
+    
+    print(f"\n📦 Se encontraron {len(dependencies)} dependencias instaladas:")
+    print("=" * 60)
+    
+    # Mostrar dependencias con numeración
+    packages_to_uninstall = []
+    for i, dep in enumerate(dependencies, 1):
+        package_name = dep.split('==')[0] if '==' in dep else dep.split('>=')[0] if '>=' in dep else dep
+        print(f"{i:3d}. {dep}")
+    
+    print("\n" + "=" * 60)
+    print("💡 Instrucciones:")
+    print("   • Escribe los números de los paquetes que DESEAS DESINSTALAR")
+    print("   • Separa múltiples números con espacios o comas")
+    print("   • Ejemplo: 1 3 5-8 10  (desinstala paquetes 1, 3, del 5 al 8, y 10)")
+    print("   • Escribe 'todos' para seleccionar todas las dependencias")
+    print("   • Presiona Enter sin escribir nada para cancelar")
+    
+    while True:
+        try:
+            selection = input("\n🎯 Selecciona los paquetes a desinstalar: ").strip()
+            
+            if not selection:
+                print("❌ Operación cancelada por el usuario.")
+                return
+            
+            if selection.lower() in ['todos', 'all', 'todo']:
+                selected_indices = list(range(1, len(dependencies) + 1))
+                break
+            
+            # Parsear la selección
+            selected_indices = []
+            parts = selection.replace(',', ' ').split()
+            
+            for part in parts:
+                if '-' in part and part.count('-') == 1:
+                    # Rango (ej: 5-8)
+                    try:
+                        start, end = map(int, part.split('-'))
+                        if 1 <= start <= len(dependencies) and 1 <= end <= len(dependencies) and start <= end:
+                            selected_indices.extend(range(start, end + 1))
+                        else:
+                            raise ValueError()
+                    except ValueError:
+                        print(f"❌ Rango inválido: {part}")
+                        continue
+                else:
+                    # Número individual
+                    try:
+                        num = int(part)
+                        if 1 <= num <= len(dependencies):
+                            selected_indices.append(num)
+                        else:
+                            print(f"❌ Número fuera de rango: {num}")
+                    except ValueError:
+                        print(f"❌ Entrada inválida: {part}")
+            
+            # Eliminar duplicados y ordenar
+            selected_indices = sorted(set(selected_indices))
+            
+            if not selected_indices:
+                print("❌ No se seleccionaron paquetes válidos. Intente nuevamente.")
+                continue
+            
+            break
+            
+        except KeyboardInterrupt:
+            print("\n❌ Operación cancelada por el usuario.")
+            return
+    
+    # Mostrar paquetes seleccionados
+    print(f"\n✅ Paquetes seleccionados para desinstalar ({len(selected_indices)}):")
+    print("-" * 50)
+    for idx in selected_indices:
+        dep = dependencies[idx - 1]
+        package_name = dep.split('==')[0] if '==' in dep else dep.split('>=')[0] if '>=' in dep else dep
+        packages_to_uninstall.append(package_name)
+        print(f"   🗑️  {dep}")
+    
+    # Confirmación final
+    print("-" * 50)
+    while True:
+        confirm = input("¿Confirma la desinstalación de estos paquetes? (sí/s/yes/y | no/n): ").strip().lower()
+        if confirm in ['sí', 'si', 's', 'yes', 'y']:
+            break
+        elif confirm in ['no', 'n']:
+            print("❌ Operación cancelada por el usuario.")
+            return
+        else:
+            print("❌ Respuesta inválida. Use 'sí' o 'no'.")
+    
+    # Ejecutar desinstalación
+    print(f"\n🚀 Iniciando desinstalación de {len(packages_to_uninstall)} paquetes...")
+    print("=" * 60)
+    
+    failed_packages = []
+    successful_packages = []
+    
+    for i, package in enumerate(packages_to_uninstall, 1):
+        try:
+            print(f"[{i}/{len(packages_to_uninstall)}] Desinstalando {package}...")
+            result = subprocess.run(
+                [sys.executable, '-m', 'pip', 'uninstall', '-y', package], 
+                capture_output=True, 
+                text=True,
+                timeout=30
+            )
+            
+            if result.returncode == 0:
+                print(f"   ✅ {package} desinstalado correctamente")
+                successful_packages.append(package)
+            else:
+                print(f"   ❌ Error al desinstalar {package}: {result.stderr.strip()}")
+                failed_packages.append(package)
+                
+        except subprocess.TimeoutExpired:
+            print(f"   ⏰ Timeout al desinstalar {package}")
+            failed_packages.append(package)
+        except Exception as e:
+            print(f"   ❌ Error inesperado al desinstalar {package}: {e}")
+            failed_packages.append(package)
+    
+    # Resumen final
+    print("\n" + "=" * 60)
+    print("📊 RESUMEN DE DESINSTALACIÓN:")
+    print(f"   ✅ Exitosos: {len(successful_packages)}")
+    print(f"   ❌ Fallidos: {len(failed_packages)}")
+    
+    if successful_packages:
+        print(f"\n✅ Paquetes desinstalados correctamente:")
+        for pkg in successful_packages:
+            print(f"   • {pkg}")
+    
+    if failed_packages:
+        print(f"\n❌ Paquetes que no pudieron desinstalarse:")
+        for pkg in failed_packages:
+            print(f"   • {pkg}")
+        print("\n💡 Sugerencia: Intente desinstalar manualmente los paquetes fallidos.")
+    
+    print("\n🔄 Regenerando reporte de dependencias...")
+    generate_report()
+    print("✅ uninstall_dependencies_selective() ejecutado correctamente.")
+
 def check_environment():
     subprocess.run([sys.executable, '-m', 'pip', 'list'])
     print("check_environment() ejecutado correctamente.")
@@ -41,15 +203,11 @@ def execute_activator():
         "La consola embebida no puede cambiar el entorno Python activo de la app. "
         "Por favor, continúe en el terminal externo para trabajar con el venv activado."
     )
-    if 'window' in globals():
-        window.log_widget.log(mensaje, "warn")
-        window.tab_console.console.appendPlainText(mensaje)
-        window.tab_console.send_command_from_gui("powershell -File Activador-VENV.ps1")
-    else:
-        print(mensaje)
-        result = subprocess.run(['powershell', '-File', 'Activador-VENV.ps1'], capture_output=True, text=True)
-        print(result.stdout)
-        print(result.stderr)
+    print(mensaje)
+    result = subprocess.run(['powershell', '-File', 'Activador-VENV.ps1'], capture_output=True, text=True)
+    print(result.stdout)
+    if result.stderr:
+        print(f"Error: {result.stderr}")
     print("execute_activator() ejecutado correctamente.")
 
 def manual_command():
@@ -79,10 +237,11 @@ def main():
         print("\nHerramienta de Limpieza de Python")
         print("1. Ejecutar Script Activador")
         print("2. Generar Reporte de Dependencias Instaladas")
-        print("3. Desinstalar dependencias de Python")
-        print("4. Verificar Entorno de Python")
-        print("5. Comando Manual")
-        print("6. Salir")
+        print("3. Desinstalar dependencias de Python (Todas)")
+        print("4. Desinstalar dependencias de Python (Selectivo)")
+        print("5. Verificar Entorno de Python")
+        print("6. Comando Manual")
+        print("7. Salir")
         choice = input("Elija una opción: ")
         if choice == '1':
             execute_activator()
@@ -91,10 +250,12 @@ def main():
         elif choice == '3':
             uninstall_dependencies()
         elif choice == '4':
-            check_environment()
+            uninstall_dependencies_selective()
         elif choice == '5':
-            manual_command()
+            check_environment()
         elif choice == '6':
+            manual_command()
+        elif choice == '7':
             print("Saliendo...")
             raise SystemExit
         else:
@@ -127,6 +288,171 @@ def iniciar_gui():
             self.setStyleSheet(f"background-color: {self.color_on.name()}; border-radius: {self.size//2}px; border: 1px solid #333;")
         def set_off(self):
             self.setStyleSheet(f"background-color: {self.color_off.name()}; border-radius: {self.size//2}px; border: 1px solid #333;")
+
+    class PackageSelectionDialog(QDialog):
+        def __init__(self, packages, parent=None):
+            super().__init__(parent)
+            self.packages = packages
+            self.selected_packages = []
+            self.init_ui()
+            
+        def init_ui(self):
+            self.setWindowTitle("🧹 Selección de Paquetes para Desinstalar")
+            self.setModal(True)
+            self.resize(700, 500)
+            
+            layout = QVBoxLayout()
+            
+            # Header con información
+            header = QLabel(f"📦 Se encontraron {len(self.packages)} paquetes instalados")
+            header.setStyleSheet("font-size: 14px; font-weight: bold; color: #2196F3; padding: 10px;")
+            layout.addWidget(header)
+            
+            # Instrucciones
+            instructions = QLabel(
+                "💡 Selecciona los paquetes que DESEAS DESINSTALAR.\n"
+                "   Los paquetes no seleccionados permanecerán instalados."
+            )
+            instructions.setStyleSheet("color: #FFA726; padding: 5px; background: #2A2A2A; border-radius: 5px;")
+            layout.addWidget(instructions)
+            
+            # Controles de selección
+            controls_layout = QHBoxLayout()
+            self.btn_select_all = QPushButton("✅ Seleccionar Todos")
+            self.btn_select_none = QPushButton("❌ Deseleccionar Todos")
+            self.btn_select_all.clicked.connect(self.select_all)
+            self.btn_select_none.clicked.connect(self.select_none)
+            
+            controls_layout.addWidget(self.btn_select_all)
+            controls_layout.addWidget(self.btn_select_none)
+            controls_layout.addStretch()
+            
+            # Filtro de búsqueda
+            self.filter_input = QLineEdit()
+            self.filter_input.setPlaceholderText("🔍 Buscar paquetes...")
+            self.filter_input.textChanged.connect(self.filter_packages)
+            controls_layout.addWidget(QLabel("Filtro:"))
+            controls_layout.addWidget(self.filter_input)
+            
+            layout.addLayout(controls_layout)
+            
+            # Lista de paquetes con checkboxes
+            self.package_list = QTableWidget()
+            self.package_list.setColumnCount(3)
+            self.package_list.setHorizontalHeaderLabels(["Seleccionar", "Paquete", "Versión"])
+            self.package_list.horizontalHeader().setStretchLastSection(True)
+            self.package_list.setAlternatingRowColors(True)
+            self.package_list.setSelectionBehavior(QTableWidget.SelectRows)
+            
+            self.populate_package_list()
+            layout.addWidget(self.package_list)
+            
+            # Contador de seleccionados
+            self.selection_label = QLabel("📊 Seleccionados: 0 paquetes")
+            self.selection_label.setStyleSheet("font-weight: bold; color: #4CAF50;")
+            layout.addWidget(self.selection_label)
+            
+            # Botones de acción
+            button_layout = QHBoxLayout()
+            self.btn_ok = QPushButton("🗑️ Desinstalar Seleccionados")
+            self.btn_cancel = QPushButton("❌ Cancelar")
+            
+            self.btn_ok.setStyleSheet("background-color: #F44336; color: white; font-weight: bold; padding: 8px;")
+            self.btn_cancel.setStyleSheet("background-color: #757575; color: white; padding: 8px;")
+            
+            self.btn_ok.clicked.connect(self.accept_selection)
+            self.btn_cancel.clicked.connect(self.reject)
+            
+            button_layout.addStretch()
+            button_layout.addWidget(self.btn_ok)
+            button_layout.addWidget(self.btn_cancel)
+            
+            layout.addLayout(button_layout)
+            self.setLayout(layout)
+            
+        def populate_package_list(self):
+            self.package_list.setRowCount(len(self.packages))
+            self.checkboxes = []
+            
+            for i, package in enumerate(self.packages):
+                # Checkbox
+                checkbox = QCheckBox()
+                checkbox.stateChanged.connect(self.update_selection_count)
+                self.checkboxes.append(checkbox)
+                self.package_list.setCellWidget(i, 0, checkbox)
+                
+                # Parsear nombre y versión
+                if '==' in package:
+                    name, version = package.split('==', 1)
+                elif '>=' in package:
+                    name, version = package.split('>=', 1)
+                    version = f">= {version}"
+                else:
+                    name, version = package, "N/A"
+                
+                # Nombre del paquete
+                name_item = QTableWidgetItem(name)
+                name_item.setFlags(name_item.flags() & ~Qt.ItemIsEditable)
+                self.package_list.setItem(i, 1, name_item)
+                
+                # Versión
+                version_item = QTableWidgetItem(version)
+                version_item.setFlags(version_item.flags() & ~Qt.ItemIsEditable)
+                self.package_list.setItem(i, 2, version_item)
+            
+            self.package_list.resizeColumnsToContents()
+            self.package_list.setColumnWidth(0, 100)
+            
+        def filter_packages(self):
+            filter_text = self.filter_input.text().lower()
+            for i in range(self.package_list.rowCount()):
+                package_name = self.package_list.item(i, 1).text().lower()
+                should_show = filter_text in package_name
+                self.package_list.setRowHidden(i, not should_show)
+                
+        def select_all(self):
+            for checkbox in self.checkboxes:
+                if not self.package_list.isRowHidden(self.checkboxes.index(checkbox)):
+                    checkbox.setChecked(True)
+                    
+        def select_none(self):
+            for checkbox in self.checkboxes:
+                checkbox.setChecked(False)
+                
+        def update_selection_count(self):
+            count = sum(1 for cb in self.checkboxes if cb.isChecked())
+            self.selection_label.setText(f"📊 Seleccionados: {count} paquetes")
+            self.btn_ok.setEnabled(count > 0)
+            
+        def accept_selection(self):
+            self.selected_packages = []
+            for i, checkbox in enumerate(self.checkboxes):
+                if checkbox.isChecked():
+                    package = self.packages[i]
+                    # Extraer solo el nombre del paquete
+                    package_name = package.split('==')[0] if '==' in package else package.split('>=')[0] if '>=' in package else package
+                    self.selected_packages.append(package_name)
+            
+            if not self.selected_packages:
+                QMessageBox.warning(self, "Advertencia", "No has seleccionado ningún paquete para desinstalar.")
+                return
+                
+            # Confirmación final
+            reply = QMessageBox.question(
+                self, 
+                "Confirmación de Desinstalación",
+                f"¿Estás seguro de que deseas desinstalar {len(self.selected_packages)} paquetes?\n\n"
+                f"Paquetes seleccionados:\n" + "\n".join(f"• {pkg}" for pkg in self.selected_packages[:10]) + 
+                (f"\n... y {len(self.selected_packages) - 10} más" if len(self.selected_packages) > 10 else ""),
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            
+            if reply == QMessageBox.Yes:
+                self.accept()
+            
+        def get_selected_packages(self):
+            return self.selected_packages
 
     class LogWidget(QTextEdit):
         def __init__(self, parent=None):
@@ -413,14 +739,26 @@ def iniciar_gui():
             self.btn_crear_venv = QPushButton("🆕 Crear VENV")
             self.btn_activador = QPushButton("⚡ Activar VENV")
             self.btn_reporte = QPushButton("📄 Generar Reporte")
-            self.btn_uninstall = QPushButton("🧹 Desinstalar Dependencias")
+            self.btn_uninstall = QPushButton("🧹 Desinstalar Todo")
+            self.btn_uninstall_selective = QPushButton("🎯 Desinstalar Selectivo")
             self.btn_check = QPushButton("🔍 Verificar Entorno")
             self.btn_manual = QPushButton("🛠️ Comandos Manuales")
             self.btn_salir = QPushButton("🚪 Salir")
-            for btn in [self.btn_crear_venv, self.btn_activador, self.btn_reporte, self.btn_uninstall, self.btn_check, self.btn_manual, self.btn_salir]:
+            
+            # Organizar botones en dos filas para mejor distribución
+            btn_layout1 = QHBoxLayout()
+            btn_layout2 = QHBoxLayout()
+            
+            for btn in [self.btn_crear_venv, self.btn_activador, self.btn_reporte, self.btn_check]:
                 btn.setMinimumHeight(40)
-                btn_layout.addWidget(btn)
-            main_layout.addLayout(btn_layout)
+                btn_layout1.addWidget(btn)
+                
+            for btn in [self.btn_uninstall, self.btn_uninstall_selective, self.btn_manual, self.btn_salir]:
+                btn.setMinimumHeight(40)
+                btn_layout2.addWidget(btn)
+                
+            main_layout.addLayout(btn_layout1)
+            main_layout.addLayout(btn_layout2)
 
             # Panel dinámico (tabla de dependencias, comandos, etc.)
             self.panel = QWidget()
@@ -444,6 +782,12 @@ def iniciar_gui():
             self.btn_cargar_venv.clicked.connect(self.cargar_venv_externo)
             self.btn_global.clicked.connect(self.cargar_global)
             self.btn_local.clicked.connect(self.cargar_local)
+            self.btn_reporte.clicked.connect(self.generar_reporte)
+            self.btn_uninstall.clicked.connect(self.desinstalar_dependencias)
+            self.btn_uninstall_selective.clicked.connect(self.desinstalar_dependencias_selectivo)
+            self.btn_check.clicked.connect(self.verificar_entorno)
+            self.btn_manual.clicked.connect(self.comandos_manuales)
+            self.btn_salir.clicked.connect(self.close)
         def cargar_global(self):
             reply = QMessageBox.question(self, "Confirmación", "¿Seguro que deseas cambiar al entorno GLOBAL?", QMessageBox.Yes | QMessageBox.No)
             if reply != QMessageBox.Yes:
@@ -532,11 +876,7 @@ def iniciar_gui():
             except Exception as e:
                 self.log_widget.log(f"Error al crear VENV: {e}", "err")
                 self.status_bar.showMessage("Error al crear VENV.", 4000)
-            self.btn_reporte.clicked.connect(self.generar_reporte)
-            self.btn_uninstall.clicked.connect(self.desinstalar_dependencias)
-            self.btn_check.clicked.connect(self.verificar_entorno)
-            self.btn_manual.clicked.connect(self.comandos_manuales)
-            self.btn_salir.clicked.connect(self.close)
+                self.update_env_indicators()
 
         def activar_venv(self):
             reply = QMessageBox.question(self, "Confirmación", "¿Seguro que deseas activar el VENV local?", QMessageBox.Yes | QMessageBox.No)
@@ -605,44 +945,144 @@ def iniciar_gui():
             except Exception as e:
                 self.panel_layout.addWidget(QLabel(f"Error al leer pyREPORT.txt: {e}"))
 
-        def desinstalar_dependencias(self):
-            reply = QMessageBox.question(self, "Desinstalación", "¿Deseas seleccionar los paquetes a desinstalar uno a uno? (Sí = selectivo, No = todos)", QMessageBox.Yes | QMessageBox.No)
-            if reply == QMessageBox.Yes:
-                # Modo selectivo: mostrar diálogo con los paquetes
-                try:
-                    with open('pyREPORT.txt', 'r') as f:
-                        deps = [line.strip().split('==')[0] if '==' in line else line.strip() for line in f if line.strip()]
-                    if not deps:
-                        self.log_widget.log("No hay dependencias en pyREPORT.txt.", "warn")
-                        self.status_bar.showMessage("No hay dependencias en pyREPORT.txt.", 4000)
-                        return
-                    # Diálogo de selección
-                    from PySide6.QtWidgets import QInputDialog
-                    pkg_str = ' '.join(deps)
-                    seleccion, ok = QInputDialog.getText(self, "Seleccionar paquetes", f"Paquetes disponibles:\n{pkg_str}\n\nEscribe los nombres de los paquetes a desinstalar separados por espacio:")
-                    if not ok or not seleccion.strip():
-                        self.log_widget.log("Desinstalación selectiva cancelada por el usuario.", "warn")
-                        self.status_bar.showMessage("Desinstalación selectiva cancelada.", 3000)
-                        return
-                    pkgs = seleccion.strip().split()
-                    self.log_widget.log(f"Desinstalando selectivamente: {' '.join(pkgs)}", "warn")
-                    self.status_bar.showMessage("Desinstalando paquetes seleccionados...", 3000)
-                    for dep in pkgs:
-                        subprocess.run([self.tab_console.current_python, '-m', 'pip', 'uninstall', '-y', dep])
-                        self.log_widget.log(f"Desinstalado: {dep}", "ok")
-                    self.status_bar.showMessage("Desinstalación selectiva finalizada.", 4000)
-                except Exception as e:
-                    self.log_widget.log(f"Error en desinstalación selectiva: {e}", "err")
-                    self.status_bar.showMessage("Error en desinstalación selectiva.", 4000)
+        def desinstalar_dependencias_selectivo(self):
+            """Desinstala dependencias de forma selectiva usando un diálogo interactivo."""
+            self.log_widget.log("Iniciando desinstalación selectiva de dependencias...", "info")
+            self.status_bar.showMessage("Preparando lista de paquetes...", 3000)
+            
+            # Obtener lista de paquetes instalados
+            try:
+                result = subprocess.run(
+                    [self.tab_console.current_python, '-m', 'pip', 'freeze'], 
+                    capture_output=True, 
+                    text=True,
+                    timeout=30
+                )
+                
+                if result.returncode != 0:
+                    self.log_widget.log(f"Error al obtener lista de paquetes: {result.stderr}", "err")
+                    self.status_bar.showMessage("Error al obtener lista de paquetes.", 4000)
+                    QMessageBox.warning(self, "Error", "No se pudo obtener la lista de paquetes instalados.")
+                    return
+                
+                packages = [line.strip() for line in result.stdout.split('\n') if line.strip()]
+                
+                if not packages:
+                    self.log_widget.log("No se encontraron paquetes instalados.", "warn")
+                    self.status_bar.showMessage("No hay paquetes instalados.", 4000)
+                    QMessageBox.information(self, "Información", "No se encontraron paquetes instalados en el entorno actual.")
+                    return
+                
+                self.log_widget.log(f"Se encontraron {len(packages)} paquetes instalados.", "info")
+                
+            except subprocess.TimeoutExpired:
+                self.log_widget.log("Timeout al obtener la lista de paquetes.", "err")
+                self.status_bar.showMessage("Timeout al obtener lista de paquetes.", 4000)
+                QMessageBox.warning(self, "Error", "Se agotó el tiempo de espera al obtener la lista de paquetes.")
                 return
-            # Modo normal: desinstalar todos
-            reply2 = QMessageBox.question(self, "Confirmación", "¿Seguro que deseas desinstalar todas las dependencias listadas en pyREPORT.txt?", QMessageBox.Yes | QMessageBox.No)
-            if reply2 != QMessageBox.Yes:
+            except Exception as e:
+                self.log_widget.log(f"Error inesperado al obtener paquetes: {e}", "err")
+                self.status_bar.showMessage("Error inesperado.", 4000)
+                QMessageBox.critical(self, "Error", f"Error inesperado: {e}")
+                return
+            
+            # Mostrar diálogo de selección
+            dialog = PackageSelectionDialog(packages, self)
+            
+            if dialog.exec() == QDialog.Accepted:
+                selected_packages = dialog.get_selected_packages()
+                
+                if not selected_packages:
+                    self.log_widget.log("No se seleccionaron paquetes para desinstalar.", "warn")
+                    self.status_bar.showMessage("Operación cancelada - Sin selección.", 3000)
+                    return
+                
+                self.log_widget.log(f"Iniciando desinstalación de {len(selected_packages)} paquetes seleccionados.", "warn")
+                self.status_bar.showMessage(f"Desinstalando {len(selected_packages)} paquetes...", 5000)
+                
+                # Ejecutar desinstalación
+                failed_packages = []
+                successful_packages = []
+                
+                for i, package in enumerate(selected_packages, 1):
+                    try:
+                        self.log_widget.log(f"[{i}/{len(selected_packages)}] Desinstalando {package}...", "info")
+                        
+                        result = subprocess.run(
+                            [self.tab_console.current_python, '-m', 'pip', 'uninstall', '-y', package],
+                            capture_output=True,
+                            text=True,
+                            timeout=30
+                        )
+                        
+                        if result.returncode == 0:
+                            self.log_widget.log(f"✅ {package} desinstalado correctamente", "ok")
+                            successful_packages.append(package)
+                        else:
+                            error_msg = result.stderr.strip() or "Error desconocido"
+                            self.log_widget.log(f"❌ Error al desinstalar {package}: {error_msg}", "err")
+                            failed_packages.append(package)
+                            
+                    except subprocess.TimeoutExpired:
+                        self.log_widget.log(f"⏰ Timeout al desinstalar {package}", "err")
+                        failed_packages.append(package)
+                    except Exception as e:
+                        self.log_widget.log(f"❌ Error inesperado al desinstalar {package}: {e}", "err")
+                        failed_packages.append(package)
+                
+                # Mostrar resumen
+                self.log_widget.log("=" * 50, "info")
+                self.log_widget.log(f"📊 RESUMEN: Exitosos: {len(successful_packages)} | Fallidos: {len(failed_packages)}", "info")
+                
+                if successful_packages:
+                    self.log_widget.log(f"✅ Paquetes desinstalados: {', '.join(successful_packages)}", "ok")
+                    
+                if failed_packages:
+                    self.log_widget.log(f"❌ Paquetes fallidos: {', '.join(failed_packages)}", "err")
+                
+                # Mostrar notificación final
+                if failed_packages:
+                    QMessageBox.warning(
+                        self, 
+                        "Desinstalación Completada con Errores",
+                        f"Desinstalación completada:\n\n"
+                        f"✅ Exitosos: {len(successful_packages)}\n"
+                        f"❌ Fallidos: {len(failed_packages)}\n\n"
+                        f"Revisa el log para más detalles."
+                    )
+                else:
+                    QMessageBox.information(
+                        self,
+                        "Desinstalación Exitosa",
+                        f"¡Todos los {len(successful_packages)} paquetes fueron desinstalados correctamente!"
+                    )
+                
+                self.status_bar.showMessage("Desinstalación selectiva completada.", 4000)
+                
+                # Regenerar reporte
+                self.log_widget.log("🔄 Regenerando reporte de dependencias...", "info")
+                self.generar_reporte()
+                
+            else:
+                self.log_widget.log("Desinstalación selectiva cancelada por el usuario.", "warn")
+                self.status_bar.showMessage("Operación cancelada.", 3000)
+
+        def desinstalar_dependencias(self):
+            """Desinstala todas las dependencias listadas en pyREPORT.txt."""
+            reply = QMessageBox.question(
+                self, 
+                "Confirmación", 
+                "¿Seguro que deseas desinstalar TODAS las dependencias listadas en pyREPORT.txt?", 
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if reply != QMessageBox.Yes:
                 self.status_bar.showMessage("Desinstalación cancelada.", 3000)
                 self.log_widget.log("Desinstalación de dependencias cancelada por el usuario.", "warn")
                 return
-            self.log_widget.log("Desinstalando dependencias...", "warn")
+                
+            self.log_widget.log("Desinstalando todas las dependencias...", "warn")
             self.status_bar.showMessage("Desinstalando dependencias...", 3000)
+            
             try:
                 uninstall_dependencies()
                 self.log_widget.log("Dependencias desinstaladas.", "ok")
