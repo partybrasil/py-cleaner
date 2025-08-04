@@ -216,8 +216,15 @@ def generate_report() -> bool:
                 report_content += f"# Ambiente: {env_info['env_type']}\n"
                 report_content += f"# Python: {env_info['python_version']}\n"
                 report_content += f"# Ejecutable: {env_info['python_executable']}\n"
-                if env_info['venv_path']:
+                
+                # Agregar información específica del path del venv según el tipo
+                if env_info['env_type'] == 'local_venv' and env_info.get('venv_path'):
                     report_content += f"# VENV Path: {env_info['venv_path']}\n"
+                elif env_info['env_type'] == 'external_venv' and env_manager.external_venv_path:
+                    report_content += f"# VENV Path: {env_manager.external_venv_path}\n"
+                elif env_info['env_type'] == 'system':
+                    report_content += f"# Base Prefix: {env_info['base_prefix']}\n"
+                
                 report_content += f"#\n"
                 report_content += result.stdout
                 
@@ -247,6 +254,14 @@ def generate_report() -> bool:
                     border_style="red"
                 ))
                 return False
+                
+        except subprocess.TimeoutExpired:
+            console.print(f"[bold red]⏰ Timeout al generar reporte desde {env_info['env_type']}[/bold red]")
+            return False
+        except Exception as e:
+            console.print(f"[bold red]❌ Error inesperado: {e}[/bold red]")
+            console.print(f"[dim]Ambiente: {env_info['env_type']}, Ejecutable: {pip_executable}[/dim]")
+            return False
                 
         except subprocess.TimeoutExpired:
             console.print(f"[bold red]⏰ Timeout al generar reporte desde {env_info['env_type']}[/bold red]")
@@ -1953,7 +1968,12 @@ def iniciar_gui():
                 self.log_widget.log("Cambio a entorno GLOBAL cancelado por el usuario.", "warn")
                 return
             self.entorno_activo = "global"
-            self.tab_console.set_python(sys.base_prefix + ("/python.exe" if os.name == "nt" else "/bin/python"))
+            global_python = sys.base_prefix + ("/python.exe" if os.name == "nt" else "/bin/python")
+            self.tab_console.set_python(global_python)
+            
+            # Sincronizar con env_manager global
+            env_manager.switch_to_system()
+            
             self.led_global.set_on()
             self.led_venv.set_off()
             self.led_externo.set_off()
@@ -1967,7 +1987,32 @@ def iniciar_gui():
                 self.status_bar.showMessage("Cambio a entorno LOCAL cancelado.", 3000)
                 self.log_widget.log("Cambio a entorno LOCAL cancelado por el usuario.", "warn")
                 return
-            self.activar_venv()
+            
+            # Verificar si existe el venv local
+            local_venv_path = os.path.join(os.getcwd(), ".venv")
+            if os.name == 'nt':  # Windows
+                python_exe = os.path.join(local_venv_path, "Scripts", "python.exe")
+            else:  # Unix/Linux/Mac
+                python_exe = os.path.join(local_venv_path, "bin", "python")
+            
+            if not os.path.exists(python_exe):
+                QMessageBox.warning(self, "Error", f"No se encontró VENV local en:\n{local_venv_path}\n\nPor favor, cree un entorno virtual primero.")
+                self.log_widget.log(f"VENV local no encontrado en: {local_venv_path}", "err")
+                self.status_bar.showMessage("VENV local no encontrado.", 4000)
+                return
+            
+            self.entorno_activo = "local"
+            self.tab_console.set_python(python_exe)
+            
+            # Sincronizar con env_manager global
+            env_manager.switch_to_local_venv()
+            
+            self.led_global.set_off()
+            self.led_venv.set_on()
+            self.led_externo.set_off()
+            self.lbl_venv_path.setText(f"VENV LOCAL: {local_venv_path}")
+            self.log_widget.log(f"Cambiado a VENV LOCAL: {local_venv_path}", "info")
+            self.status_bar.showMessage("VENV LOCAL activo.", 4000)
 
         def cargar_venv_externo(self):
             from PySide6.QtWidgets import QFileDialog
@@ -1998,6 +2043,10 @@ def iniciar_gui():
                     self.python_externo = python_path
                     self.entorno_activo = "externo"
                     self.tab_console.set_python(python_path)
+                    
+                    # Sincronizar con env_manager global
+                    env_manager.switch_to_external_venv(venv_dir)
+                    
                     self.led_global.set_off()
                     self.led_venv.set_off()
                     self.led_externo.set_on()
@@ -2075,33 +2124,64 @@ def iniciar_gui():
             self.log_widget.log("Generando reporte de dependencias...", "info")
             self.status_bar.showMessage("Generando reporte de dependencias...", 3000)
             try:
-                self.tab_console.send_command_from_gui(f"{self.tab_console.current_python} -m pip freeze > pyREPORT.txt")
-                self.log_widget.log("Reporte generado como pyREPORT.txt.", "ok")
-                self.status_bar.showMessage("Reporte generado correctamente.", 4000)
-                self.mostrar_dependencias()
+                # Obtener información del ambiente actual de la GUI
+                env_type = self.entorno_activo
+                python_executable = self.tab_console.current_python
+                
+                # Ejecutar pip freeze y capturar resultado
+                result = subprocess.run([python_executable, '-m', 'pip', 'freeze'], 
+                                      capture_output=True, text=True, timeout=30)
+                
+                if result.returncode == 0:
+                    # Crear reporte con información correcta del ambiente GUI
+                    report_content = f"# Reporte de Dependencias - py-cleaner\n"
+                    report_content += f"# Generado: {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                    report_content += f"# Ambiente: {env_type}\n"
+                    
+                    # Obtener versión de Python
+                    try:
+                        version_result = subprocess.run([python_executable, '--version'], 
+                                                      capture_output=True, text=True, timeout=10)
+                        python_version = version_result.stdout.strip() if version_result.returncode == 0 else "Desconocido"
+                    except:
+                        python_version = "Desconocido"
+                    
+                    report_content += f"# Python: {python_version}\n"
+                    report_content += f"# Ejecutable: {python_executable}\n"
+                    
+                    # Agregar información de path del venv si aplica
+                    if hasattr(self, 'python_externo') and env_type == "externo":
+                        venv_path = os.path.dirname(os.path.dirname(self.python_externo))
+                        report_content += f"# VENV Path: {venv_path}\n"
+                    elif env_type == "local":
+                        local_venv_path = os.path.join(os.getcwd(), ".venv")
+                        report_content += f"# VENV Path: {local_venv_path}\n"
+                    
+                    report_content += f"#\n"
+                    report_content += result.stdout
+                    
+                    # Escribir archivo
+                    with open('pyREPORT.txt', 'w', encoding='utf-8') as report_file:
+                        report_file.write(report_content)
+                    
+                    # Mostrar resultado en consola embebida
+                    self.tab_console.send_command_from_gui(f"{self.tab_console.current_python} -m pip freeze")
+                    
+                    # Contar dependencias (excluyendo comentarios)
+                    deps_count = len([line for line in result.stdout.split('\n') if line.strip() and not line.startswith('#')])
+                    
+                    self.log_widget.log(f"Reporte generado: pyREPORT.txt ({deps_count} dependencias, ambiente: {env_type})", "ok")
+                    self.status_bar.showMessage(f"Reporte generado correctamente - {deps_count} dependencias encontradas.", 4000)
+                else:
+                    self.log_widget.log(f"Error al generar reporte: {result.stderr}", "err")
+                    self.status_bar.showMessage("Error al generar reporte.", 4000)
+                    
+            except subprocess.TimeoutExpired:
+                self.log_widget.log("Timeout al generar reporte de dependencias.", "err")
+                self.status_bar.showMessage("Timeout al generar reporte.", 4000)
             except Exception as e:
                 self.log_widget.log(f"Error al generar reporte: {e}", "err")
                 self.status_bar.showMessage("Error al generar reporte.", 4000)
-
-        def mostrar_dependencias(self):
-            self.panel_layout.takeAt(0)
-            self.panel_layout.addWidget(QLabel("Dependencias instaladas:"))
-            table = QTableWidget()
-            try:
-                with open('pyREPORT.txt', 'r') as f:
-                    deps = [line.strip() for line in f if line.strip()]
-                table.setRowCount(len(deps))
-                table.setColumnCount(2)
-                table.setHorizontalHeaderLabels(["Paquete", "Seleccionar"])
-                for i, dep in enumerate(deps):
-                    pkg = dep.split('==')[0] if '==' in dep else dep
-                    table.setItem(i, 0, QTableWidgetItem(pkg))
-                    chk = QCheckBox()
-                    table.setCellWidget(i, 1, chk)
-                table.resizeColumnsToContents()
-                self.panel_layout.addWidget(table)
-            except Exception as e:
-                self.panel_layout.addWidget(QLabel(f"Error al leer pyREPORT.txt: {e}"))
 
         def desinstalar_dependencias_selectivo(self):
             """Desinstala dependencias de forma selectiva usando un diálogo interactivo."""

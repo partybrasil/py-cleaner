@@ -1,14 +1,13 @@
 # Reporte de Dependencias - py-cleaner
-# Generado: 2025-08-04 13:35:51
-# Ambiente: system
-# Python: 3.13.5
-# Ejecutable: C:\Users\usuario\AppData\Local\Programs\Python\Python313\python.exe
+# Generado: 2025-08-04 14:33:40
+# Ambiente: global
+# Python: Python 3.13.5
+# Ejecutable: C:\Users\usuario\AppData\Local\Programs\Python\Python313/python.exe
 #
 click==8.2.1
 colorama==0.4.6
 markdown-it-py==3.0.0
 mdurl==0.1.2
-pycryptodome==3.23.0
 Pygments==2.19.2
 PySide6==6.9.1
 PySide6_Addons==6.9.1
