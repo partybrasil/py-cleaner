@@ -1,268 +1,898 @@
-# --- CLI Original ---
+# --- CLI Moderno con Rich ---
 import os
 import subprocess
 import sys
 import signal
+from typing import List, Optional, Tuple
+from pathlib import Path
+import time
 
-def is_venv_active():
+# Rich imports para interfaz moderna
+from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
+from rich.prompt import Prompt, Confirm
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
+from rich.layout import Layout
+from rich.live import Live
+from rich.align import Align
+from rich.columns import Columns
+from rich.text import Text
+from rich import box
+from rich.rule import Rule
+from rich.tree import Tree
+from rich.syntax import Syntax
+from rich.markdown import Markdown
+
+# Configuración de consola
+console = Console()
+
+def is_venv_active() -> bool:
+    """Verifica si un entorno virtual está activo."""
     return sys.prefix != sys.base_prefix
 
-def generate_report():
-    result = subprocess.run([sys.executable, '-m', 'pip', 'freeze'], capture_output=True, text=True)
-    with open('pyREPORT.txt', 'w') as report_file:
-        report_file.write(result.stdout)
-    print("Reporte generado como pyREPORT.txt")
-    print("generate_report() ejecutado correctamente.")
+def show_environment_status():
+    """Muestra el estado actual del entorno de Python con estilo."""
+    env_type = "🔴 VIRTUAL ENV" if is_venv_active() else "🌐 GLOBAL ENV"
+    python_version = f"Python {sys.version.split()[0]}"
+    python_path = sys.executable
+    
+    env_table = Table(show_header=False, box=box.ROUNDED, border_style="bright_blue")
+    env_table.add_column("Atributo", style="bold cyan")
+    env_table.add_column("Valor", style="bright_white")
+    
+    env_table.add_row("🐍 Intérprete", python_version)
+    env_table.add_row("📍 Ubicación", python_path)
+    env_table.add_row("🌍 Tipo", env_type)
+    env_table.add_row("📁 Directorio", os.getcwd())
+    
+    console.print(Panel(
+        env_table,
+        title="[bold bright_blue]🔍 Estado del Entorno Python[/bold bright_blue]",
+        border_style="bright_blue"
+    ))
+
+def generate_report() -> bool:
+    """Genera un reporte de dependencias instaladas con interfaz moderna."""
+    with console.status("[bold green]📊 Generando reporte de dependencias...", spinner="dots"):
+        try:
+            result = subprocess.run([sys.executable, '-m', 'pip', 'freeze'], 
+                                  capture_output=True, text=True, timeout=30)
+            
+            if result.returncode == 0:
+                with open('pyREPORT.txt', 'w', encoding='utf-8') as report_file:
+                    report_file.write(result.stdout)
+                
+                # Contar dependencias
+                deps_count = len([line for line in result.stdout.split('\n') if line.strip()])
+                
+                console.print(Panel(
+                    f"[bold green]✅ Reporte generado exitosamente[/bold green]\n\n"
+                    f"📄 Archivo: [bold cyan]pyREPORT.txt[/bold cyan]\n"
+                    f"📦 Dependencias encontradas: [bold yellow]{deps_count}[/bold yellow]",
+                    title="[bold green]📊 Reporte de Dependencias[/bold green]",
+                    border_style="green"
+                ))
+                return True
+            else:
+                console.print(Panel(
+                    f"[bold red]❌ Error al generar reporte[/bold red]\n\n"
+                    f"[red]Error: {result.stderr}[/red]",
+                    title="[bold red]⚠️ Error[/bold red]",
+                    border_style="red"
+                ))
+                return False
+                
+        except subprocess.TimeoutExpired:
+            console.print("[bold red]⏰ Timeout al generar reporte[/bold red]")
+            return False
+        except Exception as e:
+            console.print(f"[bold red]❌ Error inesperado: {e}[/bold red]")
+            return False
+
+def show_packages_table(packages: List[str]) -> None:
+    """Muestra una tabla estilizada de paquetes instalados."""
+    if not packages:
+        console.print(Panel(
+            "[yellow]ℹ️ No se encontraron dependencias instaladas[/yellow]",
+            title="[bold yellow]📦 Dependencias[/bold yellow]",
+            border_style="yellow"
+        ))
+        return
+    
+    table = Table(show_header=True, header_style="bold magenta", box=box.ROUNDED)
+    table.add_column("📦 Paquete", style="cyan", no_wrap=True)
+    table.add_column("📌 Versión", style="green")
+    table.add_column("📊 Estado", justify="center")
+    
+    for i, package in enumerate(packages):
+        if '==' in package:
+            name, version = package.split('==', 1)
+            status = "✅ Instalado"
+        elif '>=' in package:
+            name, version = package.split('>=', 1)
+            version = f">= {version}"
+            status = "⚠️ Rango"
+        else:
+            name, version = package, "N/A"
+            status = "❓ Desconocido"
+        
+        # Alternar colores de fila
+        style = "on dark_blue" if i % 2 == 0 else ""
+        table.add_row(name, version, status, style=style)
+    
+    console.print(Panel(
+        table,
+        title=f"[bold cyan]📦 Dependencias Instaladas ({len(packages)})[/bold cyan]",
+        border_style="cyan"
+    ))
+
+def parse_selection(selection: str, max_num: int) -> List[int]:
+    """Parsea la selección del usuario y retorna lista de índices válidos."""
+    if not selection or not selection.strip():
+        return []
+    
+    selection = selection.strip().lower()
+    
+    # Casos especiales
+    if selection in ['todos', 'all', 'todo', '*']:
+        return list(range(1, max_num + 1))
+    
+    selected_indices = []
+    parts = selection.replace(',', ' ').split()
+    
+    for part in parts:
+        try:
+            if '-' in part and part.count('-') == 1:
+                # Rango (ej: 5-8)
+                start, end = map(int, part.split('-'))
+                if 1 <= start <= max_num and 1 <= end <= max_num and start <= end:
+                    selected_indices.extend(range(start, end + 1))
+                else:
+                    console.print(f"[yellow]⚠️ Rango inválido: {part}[/yellow]")
+            else:
+                # Número individual
+                num = int(part)
+                if 1 <= num <= max_num:
+                    selected_indices.append(num)
+                else:
+                    console.print(f"[yellow]⚠️ Número fuera de rango: {num}[/yellow]")
+        except ValueError:
+            console.print(f"[red]❌ Entrada inválida: {part}[/red]")
+    
+    # Eliminar duplicados y ordenar
+    return sorted(set(selected_indices))
 
 def uninstall_dependencies():
-    if not os.path.exists('pyREPORT.txt'):
-        print("pyREPORT.txt no encontrado.")
-        return
-    with open('pyREPORT.txt', 'r') as report_file:
-        dependencies = report_file.readlines()
-    print("Dependencias a desinstalar:")
-    for dep in dependencies:
-        print(dep.strip())
-    confirm = input("¿Desea proceder con la desinstalación? (sí/no): ")
-    if confirm.lower() != 'sí':
-        return
-    for dep in dependencies:
-        subprocess.run([sys.executable, '-m', 'pip', 'uninstall', '-y', dep.strip()])
-    print("uninstall_dependencies() ejecutado correctamente.")
-
-def uninstall_dependencies_selective():
-    """Desinstala dependencias de forma selectiva, permitiendo al usuario elegir cuáles mantener."""
-    print("\n🧹 === DESINSTALACIÓN SELECTIVA DE DEPENDENCIAS ===")
+    """Desinstala todas las dependencias de forma masiva."""
+    console.print(Rule("[bold red]🧹 DESINSTALACIÓN MASIVA DE DEPENDENCIAS[/bold red]"))
     
-    # Verificar si existe el reporte, si no, generarlo
     if not os.path.exists('pyREPORT.txt'):
-        print("⚠️ pyREPORT.txt no encontrado. Generando reporte automáticamente...")
-        generate_report()
+        console.print("[yellow]⚠️ pyREPORT.txt no encontrado.[/yellow]")
+        if Confirm.ask("¿Desea generar el reporte automáticamente?"):
+            if not generate_report():
+                return
+        else:
+            return
     
     try:
         with open('pyREPORT.txt', 'r', encoding='utf-8') as report_file:
             dependencies = [line.strip() for line in report_file.readlines() if line.strip()]
     except Exception as e:
-        print(f"❌ Error al leer pyREPORT.txt: {e}")
+        console.print(f"[bold red]❌ Error al leer pyREPORT.txt: {e}[/bold red]")
         return
     
     if not dependencies:
-        print("ℹ️ No se encontraron dependencias instaladas.")
+        console.print("[yellow]ℹ️ No se encontraron dependencias instaladas.[/yellow]")
         return
     
-    print(f"\n📦 Se encontraron {len(dependencies)} dependencias instaladas:")
-    print("=" * 60)
+    # Mostrar tabla de dependencias
+    show_packages_table(dependencies)
     
-    # Mostrar dependencias con numeración
-    packages_to_uninstall = []
+    # Confirmación con advertencia
+    warning_panel = Panel(
+        "[bold red]⚠️ ADVERTENCIA ⚠️[/bold red]\n\n"
+        "[yellow]Esta operación desinstalará TODAS las dependencias mostradas.\n"
+        "Esta acción NO se puede deshacer.[/yellow]\n\n"
+        f"[cyan]Total de paquetes a desinstalar: {len(dependencies)}[/cyan]",
+        title="[bold red]🚨 Confirmación Requerida[/bold red]",
+        border_style="red"
+    )
+    console.print(warning_panel)
+    
+    if not Confirm.ask("[bold red]¿Confirma la desinstalación masiva?[/bold red]"):
+        console.print("[yellow]❌ Operación cancelada por el usuario.[/yellow]")
+        return
+    
+    # Ejecutar desinstalación con progreso
+    console.print(Rule("[bold green]🚀 Iniciando Desinstalación Masiva[/bold green]"))
+    
+    failed_packages = []
+    successful_packages = []
+    
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+    ) as progress:
+        
+        task = progress.add_task("Desinstalando paquetes...", total=len(dependencies))
+        
+        for i, dep in enumerate(dependencies):
+            package_name = dep.split('==')[0] if '==' in dep else dep.split('>=')[0] if '>=' in dep else dep
+            progress.update(task, description=f"Desinstalando {package_name}...")
+            
+            try:
+                result = subprocess.run(
+                    [sys.executable, '-m', 'pip', 'uninstall', '-y', package_name],
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+                
+                if result.returncode == 0:
+                    successful_packages.append(package_name)
+                else:
+                    failed_packages.append(package_name)
+                    
+            except subprocess.TimeoutExpired:
+                failed_packages.append(package_name)
+            except Exception:
+                failed_packages.append(package_name)
+            
+            progress.advance(task)
+    
+    # Mostrar resumen final
+    show_uninstall_summary(successful_packages, failed_packages)
+    
+    # Regenerar reporte
+    console.print(Rule("[bold blue]🔄 Regenerando Reporte[/bold blue]"))
+    generate_report()
+
+def show_uninstall_summary(successful: List[str], failed: List[str]) -> None:
+    """Muestra un resumen estilizado de la desinstalación."""
+    summary_table = Table(show_header=True, header_style="bold magenta", box=box.DOUBLE_EDGE)
+    summary_table.add_column("📊 Resultado", style="bold")
+    summary_table.add_column("📈 Cantidad", justify="center", style="bold")
+    summary_table.add_column("📦 Paquetes", style="dim")
+    
+    # Resultados exitosos
+    success_list = ", ".join(successful[:5])
+    if len(successful) > 5:
+        success_list += f" ... y {len(successful) - 5} más"
+    
+    summary_table.add_row(
+        "[green]✅ Exitosos[/green]",
+        f"[green]{len(successful)}[/green]",
+        f"[green]{success_list}[/green]" if successful else "[dim]Ninguno[/dim]"
+    )
+    
+    # Resultados fallidos
+    failed_list = ", ".join(failed[:5])
+    if len(failed) > 5:
+        failed_list += f" ... y {len(failed) - 5} más"
+    
+    summary_table.add_row(
+        "[red]❌ Fallidos[/red]",
+        f"[red]{len(failed)}[/red]",
+        f"[red]{failed_list}[/red]" if failed else "[dim]Ninguno[/dim]"
+    )
+    
+    # Mostrar panel de resumen
+    success_rate = (len(successful) / (len(successful) + len(failed))) * 100 if (successful or failed) else 0
+    
+    console.print(Panel(
+        summary_table,
+        title=f"[bold cyan]📊 Resumen de Desinstalación (Éxito: {success_rate:.1f}%)[/bold cyan]",
+        border_style="cyan"
+    ))
+    
+    if failed:
+        console.print(Panel(
+            "[yellow]💡 Sugerencia: Intente desinstalar manualmente los paquetes fallidos o "
+            "verifique si están siendo utilizados por otros procesos.[/yellow]",
+            title="[bold yellow]💭 Recomendación[/bold yellow]",
+            border_style="yellow"
+        ))
+
+def uninstall_dependencies_selective():
+    """Desinstala dependencias de forma selectiva con interfaz Rich moderna."""
+    console.print(Rule("[bold blue]🎯 DESINSTALACIÓN SELECTIVA DE DEPENDENCIAS[/bold blue]"))
+    
+    # Verificar si existe el reporte, si no, generarlo
+    if not os.path.exists('pyREPORT.txt'):
+        console.print("[yellow]⚠️ pyREPORT.txt no encontrado.[/yellow]")
+        with console.status("[bold green]Generando reporte automáticamente...", spinner="dots"):
+            if not generate_report():
+                return
+    
+    try:
+        with open('pyREPORT.txt', 'r', encoding='utf-8') as report_file:
+            dependencies = [line.strip() for line in report_file.readlines() if line.strip()]
+    except Exception as e:
+        console.print(f"[bold red]❌ Error al leer pyREPORT.txt: {e}[/bold red]")
+        return
+    
+    if not dependencies:
+        console.print(Panel(
+            "[yellow]ℹ️ No se encontraron dependencias instaladas.[/yellow]",
+            title="[bold yellow]📦 Estado[/bold yellow]",
+            border_style="yellow"
+        ))
+        return
+    
+    # Mostrar dependencias con numeración en tabla moderna
+    packages_table = Table(show_header=True, header_style="bold magenta", box=box.ROUNDED)
+    packages_table.add_column("#", style="bold cyan", width=4, justify="right")
+    packages_table.add_column("📦 Paquete", style="bright_white")
+    packages_table.add_column("📌 Versión", style="green")
+    packages_table.add_column("📊 Información", style="dim")
+    
     for i, dep in enumerate(dependencies, 1):
-        package_name = dep.split('==')[0] if '==' in dep else dep.split('>=')[0] if '>=' in dep else dep
-        print(f"{i:3d}. {dep}")
+        if '==' in dep:
+            package_name, version = dep.split('==', 1)
+            info = "Versión exacta"
+        elif '>=' in dep:
+            package_name, version = dep.split('>=', 1)
+            version = f">= {version}"
+            info = "Versión mínima"
+        else:
+            package_name = dep
+            version = "N/A"
+            info = "Sin versión"
+        
+        # Alternar colores
+        style = "on dark_blue" if i % 2 == 0 else ""
+        packages_table.add_row(str(i), package_name, version, info, style=style)
     
-    print("\n" + "=" * 60)
-    print("💡 Instrucciones:")
-    print("   • Escribe los números de los paquetes que DESEAS DESINSTALAR")
-    print("   • Separa múltiples números con espacios o comas")
-    print("   • Ejemplo: 1 3 5-8 10  (desinstala paquetes 1, 3, del 5 al 8, y 10)")
-    print("   • Escribe 'todos' para seleccionar todas las dependencias")
-    print("   • Presiona Enter sin escribir nada para cancelar")
+    console.print(Panel(
+        packages_table,
+        title=f"[bold cyan]📦 Dependencias Instaladas ({len(dependencies)})[/bold cyan]",
+        border_style="cyan"
+    ))
     
+    # Panel de instrucciones modernas
+    instructions_md = """
+## 💡 Instrucciones de Selección
+
+- **Números individuales:** `1 3 5` (desinstala paquetes 1, 3 y 5)
+- **Rangos:** `1-5` o `10-15` (desinstala del 1 al 5, del 10 al 15)
+- **Combinado:** `1 3 5-8 10` (desinstala 1, 3, del 5 al 8, y 10)
+- **Todos:** `todos` o `all` o `*` (selecciona todos)
+- **Cancelar:** Presiona `Enter` sin escribir nada
+
+### 🎯 Ejemplos:
+- `1 5 10` → Paquetes 1, 5 y 10
+- `1-5` → Paquetes del 1 al 5
+- `todos` → Todos los paquetes
+    """
+    
+    console.print(Panel(
+        Markdown(instructions_md),
+        title="[bold yellow]📚 Guía de Uso[/bold yellow]",
+        border_style="yellow"
+    ))
+    
+    # Solicitar selección con prompt estilizado
     while True:
         try:
-            selection = input("\n🎯 Selecciona los paquetes a desinstalar: ").strip()
+            selection = Prompt.ask(
+                "\n[bold cyan]🎯 Selecciona los paquetes a desinstalar[/bold cyan]",
+                default=""
+            )
             
             if not selection:
-                print("❌ Operación cancelada por el usuario.")
+                console.print("[yellow]❌ Operación cancelada por el usuario.[/yellow]")
                 return
             
-            if selection.lower() in ['todos', 'all', 'todo']:
-                selected_indices = list(range(1, len(dependencies) + 1))
-                break
-            
-            # Parsear la selección
-            selected_indices = []
-            parts = selection.replace(',', ' ').split()
-            
-            for part in parts:
-                if '-' in part and part.count('-') == 1:
-                    # Rango (ej: 5-8)
-                    try:
-                        start, end = map(int, part.split('-'))
-                        if 1 <= start <= len(dependencies) and 1 <= end <= len(dependencies) and start <= end:
-                            selected_indices.extend(range(start, end + 1))
-                        else:
-                            raise ValueError()
-                    except ValueError:
-                        print(f"❌ Rango inválido: {part}")
-                        continue
-                else:
-                    # Número individual
-                    try:
-                        num = int(part)
-                        if 1 <= num <= len(dependencies):
-                            selected_indices.append(num)
-                        else:
-                            print(f"❌ Número fuera de rango: {num}")
-                    except ValueError:
-                        print(f"❌ Entrada inválida: {part}")
-            
-            # Eliminar duplicados y ordenar
-            selected_indices = sorted(set(selected_indices))
+            selected_indices = parse_selection(selection, len(dependencies))
             
             if not selected_indices:
-                print("❌ No se seleccionaron paquetes válidos. Intente nuevamente.")
+                console.print("[red]❌ No se seleccionaron paquetes válidos. Intente nuevamente.[/red]")
                 continue
             
             break
             
         except KeyboardInterrupt:
-            print("\n❌ Operación cancelada por el usuario.")
+            console.print("\n[yellow]❌ Operación cancelada por el usuario.[/yellow]")
             return
     
-    # Mostrar paquetes seleccionados
-    print(f"\n✅ Paquetes seleccionados para desinstalar ({len(selected_indices)}):")
-    print("-" * 50)
+    # Mostrar paquetes seleccionados en tabla
+    selected_table = Table(show_header=True, header_style="bold red", box=box.HEAVY)
+    selected_table.add_column("🗑️ #", style="bold red", width=4)
+    selected_table.add_column("📦 Paquete a Desinstalar", style="bright_white")
+    selected_table.add_column("📌 Versión", style="yellow")
+    
+    packages_to_uninstall = []
     for idx in selected_indices:
         dep = dependencies[idx - 1]
-        package_name = dep.split('==')[0] if '==' in dep else dep.split('>=')[0] if '>=' in dep else dep
-        packages_to_uninstall.append(package_name)
-        print(f"   🗑️  {dep}")
-    
-    # Confirmación final
-    print("-" * 50)
-    while True:
-        confirm = input("¿Confirma la desinstalación de estos paquetes? (sí/s/yes/y | no/n): ").strip().lower()
-        if confirm in ['sí', 'si', 's', 'yes', 'y']:
-            break
-        elif confirm in ['no', 'n']:
-            print("❌ Operación cancelada por el usuario.")
-            return
+        if '==' in dep:
+            package_name, version = dep.split('==', 1)
+        elif '>=' in dep:
+            package_name, version = dep.split('>=', 1)
+            version = f">= {version}"
         else:
-            print("❌ Respuesta inválida. Use 'sí' o 'no'.")
+            package_name = dep
+            version = "N/A"
+        
+        packages_to_uninstall.append(package_name)
+        selected_table.add_row(str(idx), package_name, version)
     
-    # Ejecutar desinstalación
-    print(f"\n🚀 Iniciando desinstalación de {len(packages_to_uninstall)} paquetes...")
-    print("=" * 60)
+    console.print(Panel(
+        selected_table,
+        title=f"[bold red]🗑️ Paquetes Seleccionados para Desinstalación ({len(packages_to_uninstall)})[/bold red]",
+        border_style="red"
+    ))
+    
+    # Confirmación final estilizada
+    warning_text = Text()
+    warning_text.append("⚠️ ADVERTENCIA: ", style="bold red")
+    warning_text.append("Esta operación NO se puede deshacer.\n", style="yellow")
+    warning_text.append(f"Se desinstalarán {len(packages_to_uninstall)} paquetes.", style="cyan")
+    
+    console.print(Panel(
+        Align.center(warning_text),
+        title="[bold red]🚨 Confirmación Final[/bold red]",
+        border_style="red"
+    ))
+    
+    if not Confirm.ask("\n[bold red]¿Confirma la desinstalación de estos paquetes?[/bold red]"):
+        console.print("[yellow]❌ Operación cancelada por el usuario.[/yellow]")
+        return
+    
+    # Ejecutar desinstalación con barra de progreso avanzada
+    console.print(Rule(f"[bold green]🚀 Iniciando Desinstalación de {len(packages_to_uninstall)} Paquetes[/bold green]"))
     
     failed_packages = []
     successful_packages = []
     
-    for i, package in enumerate(packages_to_uninstall, 1):
-        try:
-            print(f"[{i}/{len(packages_to_uninstall)}] Desinstalando {package}...")
-            result = subprocess.run(
-                [sys.executable, '-m', 'pip', 'uninstall', '-y', package], 
-                capture_output=True, 
-                text=True,
-                timeout=30
-            )
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(bar_width=40),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TextColumn("([cyan]{task.completed}[/cyan]/[cyan]{task.total}[/cyan])"),
+    ) as progress:
+        
+        task = progress.add_task("Procesando...", total=len(packages_to_uninstall))
+        
+        for i, package in enumerate(packages_to_uninstall, 1):
+            progress.update(task, description=f"[yellow]Desinstalando[/yellow] [bold]{package}[/bold]")
             
-            if result.returncode == 0:
-                print(f"   ✅ {package} desinstalado correctamente")
-                successful_packages.append(package)
-            else:
-                print(f"   ❌ Error al desinstalar {package}: {result.stderr.strip()}")
-                failed_packages.append(package)
+            try:
+                result = subprocess.run(
+                    [sys.executable, '-m', 'pip', 'uninstall', '-y', package], 
+                    capture_output=True, 
+                    text=True,
+                    timeout=30
+                )
                 
-        except subprocess.TimeoutExpired:
-            print(f"   ⏰ Timeout al desinstalar {package}")
-            failed_packages.append(package)
-        except Exception as e:
-            print(f"   ❌ Error inesperado al desinstalar {package}: {e}")
-            failed_packages.append(package)
+                if result.returncode == 0:
+                    successful_packages.append(package)
+                    progress.update(task, description=f"[green]✅ {package}[/green]")
+                else:
+                    failed_packages.append(package)
+                    progress.update(task, description=f"[red]❌ {package}[/red]")
+                    
+            except subprocess.TimeoutExpired:
+                failed_packages.append(package)
+                progress.update(task, description=f"[red]⏰ Timeout: {package}[/red]")
+            except Exception:
+                failed_packages.append(package)
+                progress.update(task, description=f"[red]💥 Error: {package}[/red]")
+            
+            progress.advance(task)
+            time.sleep(0.1)  # Pequeña pausa para mejor visualización
     
-    # Resumen final
-    print("\n" + "=" * 60)
-    print("📊 RESUMEN DE DESINSTALACIÓN:")
-    print(f"   ✅ Exitosos: {len(successful_packages)}")
-    print(f"   ❌ Fallidos: {len(failed_packages)}")
+    # Mostrar resumen detallado
+    show_uninstall_summary(successful_packages, failed_packages)
     
-    if successful_packages:
-        print(f"\n✅ Paquetes desinstalados correctamente:")
-        for pkg in successful_packages:
-            print(f"   • {pkg}")
-    
-    if failed_packages:
-        print(f"\n❌ Paquetes que no pudieron desinstalarse:")
-        for pkg in failed_packages:
-            print(f"   • {pkg}")
-        print("\n💡 Sugerencia: Intente desinstalar manualmente los paquetes fallidos.")
-    
-    print("\n🔄 Regenerando reporte de dependencias...")
+    # Regenerar reporte
+    console.print(Rule("[bold blue]🔄 Regenerando Reporte de Dependencias[/bold blue]"))
     generate_report()
-    print("✅ uninstall_dependencies_selective() ejecutado correctamente.")
+    
+    console.print("[bold green]✅ uninstall_dependencies_selective() ejecutado correctamente.[/bold green]")
 
 def check_environment():
-    subprocess.run([sys.executable, '-m', 'pip', 'list'])
-    print("check_environment() ejecutado correctamente.")
+    """Verifica y muestra el entorno de Python con interfaz moderna."""
+    console.print(Rule("[bold cyan]🔍 VERIFICACIÓN DEL ENTORNO PYTHON[/bold cyan]"))
+    
+    # Mostrar estado del entorno
+    show_environment_status()
+    
+    # Ejecutar pip list con progreso
+    with console.status("[bold green]🔍 Obteniendo lista de paquetes instalados...", spinner="dots"):
+        try:
+            result = subprocess.run([sys.executable, '-m', 'pip', 'list'], 
+                                  capture_output=True, text=True, timeout=30)
+            
+            if result.returncode == 0:
+                console.print(Panel(
+                    Syntax(result.stdout, "text", theme="monokai", line_numbers=True),
+                    title="[bold green]📦 Paquetes Instalados[/bold green]",
+                    border_style="green"
+                ))
+            else:
+                console.print(f"[bold red]❌ Error al verificar entorno: {result.stderr}[/bold red]")
+                
+        except subprocess.TimeoutExpired:
+            console.print("[bold red]⏰ Timeout al verificar entorno[/bold red]")
+        except Exception as e:
+            console.print(f"[bold red]❌ Error inesperado: {e}[/bold red]")
+    
+    console.print("[bold green]✅ check_environment() ejecutado correctamente.[/bold green]")
 
 def execute_activator():
-    mensaje = (
-        "ℹ️ La activación del entorno virtual solo afecta al terminal externo. "
-        "Las operaciones posteriores se ejecutarán en ese terminal. "
-        "La consola embebida no puede cambiar el entorno Python activo de la app. "
-        "Por favor, continúe en el terminal externo para trabajar con el venv activado."
+    """Ejecuta el script activador con interfaz moderna."""
+    console.print(Rule("[bold blue]⚡ ACTIVADOR DE ENTORNO VIRTUAL[/bold blue]"))
+    
+    # Panel informativo
+    info_panel = Panel(
+        "[bold yellow]ℹ️ INFORMACIÓN IMPORTANTE[/bold yellow]\n\n"
+        "[cyan]La activación del entorno virtual solo afecta al terminal externo.[/cyan]\n"
+        "[cyan]Las operaciones posteriores se ejecutarán en ese terminal.[/cyan]\n"
+        "[dim]La consola embebida no puede cambiar el entorno Python activo de la app.[/dim]\n\n"
+        "[bold green]💡 Por favor, continúe en el terminal externo para trabajar con el venv activado.[/bold green]",
+        title="[bold blue]📋 Limitaciones de Activación[/bold blue]",
+        border_style="blue"
     )
-    print(mensaje)
-    result = subprocess.run(['powershell', '-File', 'Activador-VENV.ps1'], capture_output=True, text=True)
-    print(result.stdout)
-    if result.stderr:
-        print(f"Error: {result.stderr}")
-    print("execute_activator() ejecutado correctamente.")
+    console.print(info_panel)
+    
+    # Ejecutar script con progreso
+    with console.status("[bold green]⚡ Ejecutando script activador...", spinner="dots"):
+        try:
+            result = subprocess.run(['powershell', '-File', 'Activador-VENV.ps1'], 
+                                  capture_output=True, text=True, timeout=30)
+            
+            if result.stdout:
+                console.print(Panel(
+                    result.stdout,
+                    title="[bold green]📤 Salida del Script[/bold green]",
+                    border_style="green"
+                ))
+            
+            if result.stderr:
+                console.print(Panel(
+                    f"[red]{result.stderr}[/red]",
+                    title="[bold red]⚠️ Errores del Script[/bold red]",
+                    border_style="red"
+                ))
+                
+        except subprocess.TimeoutExpired:
+            console.print("[bold red]⏰ Timeout al ejecutar activador[/bold red]")
+        except Exception as e:
+            console.print(f"[bold red]❌ Error al ejecutar activador: {e}[/bold red]")
+    
+    console.print("[bold green]✅ execute_activator() ejecutado correctamente.[/bold green]")
 
 def manual_command():
-    print("\nCrear Ambiente Virtual VENV:")
-    print("python -m venv .venv")
-    print("\nActivar Ambiente Virtual VENV:")
-    print(".\\.venv\\Scripts\\Activate")
-    print("\nDesactivar Ambiente Virtual VENV:")
-    print("deactivate")
-    print("\nVerificar y manejar Politica de Ejecucion de Scripts en PowerShell:")
-    print("Set-ExecutionPolicy (Restricted, AllSigned, RemoteSigned, Unrestricted)")
+    """Muestra comandos manuales con interfaz moderna y opciones de navegación."""
     while True:
-        choice = input("\nElija una opción:\n1. Volver al menú\n2. Salir\nOpción: ")
-        if choice == '1':
+        console.clear()
+        console.print(Rule("[bold cyan]🛠️ COMANDOS MANUALES DE PYTHON Y VENV[/bold cyan]"))
+        
+        # Crear árbol de comandos
+        tree = Tree("📚 [bold cyan]Comandos Disponibles[/bold cyan]")
+        
+        # Rama de Entorno Virtual
+        venv_branch = tree.add("🔧 [bold green]Entorno Virtual (VENV)[/bold green]")
+        venv_branch.add("[cyan]python -m venv .venv[/cyan] - Crear ambiente virtual")
+        venv_branch.add("[cyan].\\.venv\\Scripts\\Activate[/cyan] - Activar ambiente (Windows)")
+        venv_branch.add("[cyan]source .venv/bin/activate[/cyan] - Activar ambiente (Linux/Mac)")
+        venv_branch.add("[cyan]deactivate[/cyan] - Desactivar ambiente virtual")
+        
+        # Rama de PowerShell
+        ps_branch = tree.add("⚡ [bold yellow]PowerShell (Políticas)[/bold yellow]")
+        ps_branch.add("[yellow]Get-ExecutionPolicy[/yellow] - Ver política actual")
+        ps_branch.add("[yellow]Set-ExecutionPolicy RemoteSigned[/yellow] - Política recomendada")
+        ps_branch.add("[yellow]Set-ExecutionPolicy Restricted[/yellow] - Política restrictiva")
+        ps_branch.add("[yellow]Set-ExecutionPolicy Unrestricted[/yellow] - Sin restricciones")
+        
+        # Rama de Pip
+        pip_branch = tree.add("📦 [bold magenta]Gestión de Paquetes (Pip)[/bold magenta]")
+        pip_branch.add("[magenta]pip install package[/magenta] - Instalar paquete")
+        pip_branch.add("[magenta]pip uninstall package[/magenta] - Desinstalar paquete")
+        pip_branch.add("[magenta]pip list[/magenta] - Listar paquetes instalados")
+        pip_branch.add("[magenta]pip freeze > requirements.txt[/magenta] - Exportar dependencias")
+        pip_branch.add("[magenta]pip install -r requirements.txt[/magenta] - Instalar desde archivo")
+        
+        # Rama de Diagnóstico
+        diag_branch = tree.add("🔍 [bold red]Diagnóstico y Verificación[/bold red]")
+        diag_branch.add("[red]python --version[/red] - Versión de Python")
+        diag_branch.add("[red]python -c \"import sys; print(sys.executable)\"[/red] - Ruta del intérprete")
+        diag_branch.add("[red]python -c \"import sys; print(sys.prefix != sys.base_prefix)\"[/red] - ¿VENV activo?")
+        diag_branch.add("[red]where python[/red] - Ubicación del ejecutable Python")
+        
+        console.print(Panel(
+            tree,
+            title="[bold cyan]🛠️ Manual de Comandos Python[/bold cyan]",
+            border_style="cyan"
+        ))
+        
+        # Panel de ejemplos prácticos
+        examples_md = """
+## 🚀 Flujo de Trabajo Típico
+
+1. **Crear proyecto nuevo:**
+   ```bash
+   mkdir mi_proyecto
+   cd mi_proyecto
+   python -m venv .venv
+   ```
+
+2. **Activar y configurar:**
+   ```bash
+   .\\.venv\\Scripts\\Activate    # Windows
+   pip install --upgrade pip
+   ```
+
+3. **Instalar dependencias:**
+   ```bash
+   pip install requests pandas
+   pip freeze > requirements.txt
+   ```
+
+4. **Compartir proyecto:**
+   ```bash
+   # Otros usuarios ejecutan:
+   pip install -r requirements.txt
+   ```
+        """
+        
+        console.print(Panel(
+            Markdown(examples_md),
+            title="[bold green]💡 Ejemplos Prácticos[/bold green]",
+            border_style="green"
+        ))
+        
+        # Opciones de navegación
+        options_table = Table(show_header=False, box=box.SIMPLE)
+        options_table.add_column("Opción", style="bold cyan", width=8)
+        options_table.add_column("Descripción", style="bright_white")
+        
+        options_table.add_row("1", "🔙 Volver al menú principal")
+        options_table.add_row("2", "📋 Copiar comando específico")
+        options_table.add_row("3", "🔄 Actualizar vista")
+        options_table.add_row("4", "🚪 Salir de la aplicación")
+        
+        console.print(Panel(
+            options_table,
+            title="[bold yellow]⚙️ Opciones de Navegación[/bold yellow]",
+            border_style="yellow"
+        ))
+        
+        try:
+            choice = Prompt.ask(
+                "\n[bold cyan]Seleccione una opción[/bold cyan]",
+                choices=["1", "2", "3", "4"],
+                default="1"
+            )
+            
+            if choice == "1":
+                return
+            elif choice == "2":
+                copy_command_interface()
+            elif choice == "3":
+                continue  # Refresca la vista
+            elif choice == "4":
+                console.print("[bold red]🚪 Saliendo de la aplicación...[/bold red]")
+                raise SystemExit
+                
+        except KeyboardInterrupt:
+            console.print("\n[yellow]🔙 Regresando al menú principal...[/yellow]")
             return
-        elif choice == '2':
-            print("Saliendo...")
-            raise SystemExit
-        else:
-            print("Opción inválida. Por favor, intente de nuevo.")
-    print("manual_command() ejecutado correctamente.")
+
+def copy_command_interface():
+    """Interfaz para copiar comandos específicos al portapapeles."""
+    commands = {
+        "1": ("python -m venv .venv", "Crear entorno virtual"),
+        "2": (".\\.venv\\Scripts\\Activate", "Activar VENV (Windows)"),
+        "3": ("source .venv/bin/activate", "Activar VENV (Linux/Mac)"),
+        "4": ("deactivate", "Desactivar VENV"),
+        "5": ("Set-ExecutionPolicy RemoteSigned", "Configurar política PowerShell"),
+        "6": ("pip freeze > requirements.txt", "Exportar dependencias"),
+        "7": ("pip install -r requirements.txt", "Instalar desde requirements"),
+        "8": ("python --version", "Ver versión de Python"),
+    }
+    
+    cmd_table = Table(show_header=True, header_style="bold magenta", box=box.ROUNDED)
+    cmd_table.add_column("#", style="bold cyan", width=3)
+    cmd_table.add_column("Comando", style="green")
+    cmd_table.add_column("Descripción", style="bright_white")
+    
+    for key, (cmd, desc) in commands.items():
+        cmd_table.add_row(key, cmd, desc)
+    
+    console.print(Panel(
+        cmd_table,
+        title="[bold cyan]📋 Comandos Disponibles para Copiar[/bold cyan]",
+        border_style="cyan"
+    ))
+    
+    try:
+        choice = Prompt.ask(
+            "[bold cyan]Seleccione el comando a copiar (o Enter para regresar)[/bold cyan]",
+            default=""
+        )
+        
+        if choice in commands:
+            command, description = commands[choice]
+            try:
+                # Intentar copiar al portapapeles (requiere pyperclip)
+                import pyperclip
+                pyperclip.copy(command)
+                console.print(f"[bold green]✅ Comando copiado al portapapeles:[/bold green] [cyan]{command}[/cyan]")
+            except ImportError:
+                console.print(f"[bold yellow]📋 Comando seleccionado:[/bold yellow] [cyan]{command}[/cyan]")
+                console.print("[dim]Tip: Instale 'pyperclip' para auto-copiar al portapapeles[/dim]")
+        elif choice:
+            console.print("[red]❌ Opción inválida[/red]")
+            
+    except KeyboardInterrupt:
+        pass
+
+def show_main_menu() -> None:
+    """Muestra el menú principal con diseño moderno y atractivo."""
+    console.clear()
+    
+    # Banner principal con arte ASCII
+    banner = """
+    ██████╗ ██╗   ██╗      ██████╗██╗     ███████╗ █████╗ ███╗   ██╗███████╗██████╗ 
+    ██╔══██╗╚██╗ ██╔╝     ██╔════╝██║     ██╔════╝██╔══██╗████╗  ██║██╔════╝██╔══██╗
+    ██████╔╝ ╚████╔╝█████╗██║     ██║     █████╗  ███████║██╔██╗ ██║█████╗  ██████╔╝
+    ██╔═══╝   ╚██╔╝ ╚════╝██║     ██║     ██╔══╝  ██╔══██║██║╚██╗██║██╔══╝  ██╔══██╗
+    ██║        ██║        ╚██████╗███████╗███████╗██║  ██║██║ ╚████║███████╗██║  ██║
+    ╚═╝        ╚═╝         ╚═════╝╚══════╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝
+    """
+    
+    console.print(Panel(
+        Align.center(Text(banner, style="bold bright_blue")),
+        title="[bold cyan]🧹 Herramienta de Limpieza de Python 🐍[/bold cyan]",
+        subtitle="[dim]Gestión avanzada de entornos virtuales y dependencias[/dim]",
+        border_style="bright_blue",
+        padding=(1, 2)
+    ))
+    
+    # Estado del entorno actual
+    show_environment_status()
+    
+    # Crear layout de dos columnas para opciones
+    left_column = Table(show_header=False, box=None, padding=(0, 1))
+    left_column.add_column("", style="bold cyan", width=3)
+    left_column.add_column("", style="bright_white", min_width=25)
+    
+    right_column = Table(show_header=False, box=None, padding=(0, 1))
+    right_column.add_column("", style="bold cyan", width=3)
+    right_column.add_column("", style="bright_white", min_width=25)
+    
+    # Opciones del menú - Columna izquierda
+    left_column.add_row("1", "⚡ Ejecutar Script Activador")
+    left_column.add_row("2", "📄 Generar Reporte de Dependencias")
+    left_column.add_row("3", "🧹 Desinstalar Todas las Dependencias")
+    left_column.add_row("4", "🎯 Desinstalar Dependencias (Selectivo)")
+    
+    # Opciones del menú - Columna derecha
+    right_column.add_row("5", "🔍 Verificar Entorno de Python")
+    right_column.add_row("6", "🛠️ Comandos Manuales")
+    right_column.add_row("7", "🚪 Salir de la aplicación")
+    right_column.add_row("", "")  # Espaciado
+    
+    # Combinar columnas
+    menu_columns = Columns([
+        Panel(left_column, title="[bold yellow]🔧 Operaciones Principales[/bold yellow]", border_style="yellow"),
+        Panel(right_column, title="[bold green]⚙️ Utilidades y Configuración[/bold green]", border_style="green")
+    ])
+    
+    console.print(menu_columns)
+    
+    # Panel de información adicional
+    info_text = Text()
+    info_text.append("💡 ", style="yellow")
+    info_text.append("Tip: ", style="bold yellow")
+    info_text.append("Asegúrese de que el entorno virtual esté activado antes de realizar operaciones de dependencias.", style="cyan")
+    
+    console.print(Panel(
+        info_text,
+        title="[bold blue]ℹ️ Información[/bold blue]",
+        border_style="blue"
+    ))
 
 def main():
-    while True:
-        venv_status = "VIRTUAL" if is_venv_active() else "GLOBAL"
-        print(f"\nEntorno/Ambiente Python Activo: {venv_status}")
-        print("\nHerramienta de Limpieza de Python")
-        print("1. Ejecutar Script Activador")
-        print("2. Generar Reporte de Dependencias Instaladas")
-        print("3. Desinstalar dependencias de Python (Todas)")
-        print("4. Desinstalar dependencias de Python (Selectivo)")
-        print("5. Verificar Entorno de Python")
-        print("6. Comando Manual")
-        print("7. Salir")
-        choice = input("Elija una opción: ")
-        if choice == '1':
-            execute_activator()
-        elif choice == '2':
-            generate_report()
-        elif choice == '3':
-            uninstall_dependencies()
-        elif choice == '4':
-            uninstall_dependencies_selective()
-        elif choice == '5':
-            check_environment()
-        elif choice == '6':
-            manual_command()
-        elif choice == '7':
-            print("Saliendo...")
-            raise SystemExit
-        else:
-            print("Opción inválida. Por favor, intente de nuevo.")
+    """Función principal con interfaz CLI moderna usando Rich."""
+    try:
+        # Mensaje de bienvenida inicial
+        welcome_text = Text()
+        welcome_text.append("🎉 ¡Bienvenido a ", style="bold green")
+        welcome_text.append("py-cleaner", style="bold bright_blue")
+        welcome_text.append("! 🐍✨", style="bold green")
+        
+        console.print(Panel(
+            Align.center(welcome_text),
+            title="[bold bright_blue]🚀 Iniciando Aplicación[/bold bright_blue]",
+            border_style="bright_blue"
+        ))
+        
+        time.sleep(1.5)  # Pequeña pausa para mejor experiencia
+        
+        # Bucle principal del menú
+        while True:
+            show_main_menu()
+            
+            try:
+                choice = Prompt.ask(
+                    "\n[bold cyan]🎯 Seleccione una opción[/bold cyan]",
+                    choices=["1", "2", "3", "4", "5", "6", "7"],
+                    default="7"
+                )
+                
+                console.print(Rule(f"[bold bright_blue]Ejecutando opción {choice}[/bold bright_blue]"))
+                
+                # Procesamiento de opciones
+                if choice == '1':
+                    execute_activator()
+                elif choice == '2':
+                    generate_report()
+                elif choice == '3':
+                    uninstall_dependencies()
+                elif choice == '4':
+                    uninstall_dependencies_selective()
+                elif choice == '5':
+                    check_environment()
+                elif choice == '6':
+                    manual_command()
+                elif choice == '7':
+                    show_goodbye_message()
+                    raise SystemExit
+                
+                # Pausa para que el usuario pueda leer la salida
+                if choice in ['1', '2', '3', '4', '5']:
+                    console.print("\n[dim]Presione Enter para continuar...[/dim]")
+                    input()
+                    
+            except KeyboardInterrupt:
+                console.print("\n[yellow]🔄 Regresando al menú principal...[/yellow]")
+                time.sleep(1)
+                continue
+            except Exception as e:
+                console.print(f"\n[bold red]❌ Error inesperado: {e}[/bold red]")
+                console.print("[dim]Presione Enter para continuar...[/dim]")
+                input()
+                
+    except KeyboardInterrupt:
+        console.print("\n[yellow]👋 ¡Hasta luego![/yellow]")
+        raise SystemExit
+    except Exception as e:
+        console.print(f"\n[bold red]💥 Error crítico: {e}[/bold red]")
+        raise SystemExit
+
+def show_goodbye_message():
+    """Muestra un mensaje de despedida estilizado."""
+    console.clear()
+    
+    goodbye_text = """
+    ¡Gracias por usar py-cleaner! 🎉
+    
+    🧹 Tu entorno Python está más limpio y organizado
+    🐍 Esperamos que esta herramienta te haya sido útil
+    ⭐ ¡No olvides mantener tus dependencias actualizadas!
+    """
+    
+    console.print(Panel(
+        Align.center(Text(goodbye_text, style="bold bright_green")),
+        title="[bold bright_blue]👋 ¡Hasta la vista![/bold bright_blue]",
+        border_style="bright_green",
+        padding=(2, 4)
+    ))
+    
+    # Pequeña animación de despedida
+    with console.status("[bold green]🌟 Finalizando aplicación...", spinner="dots"):
+        time.sleep(2)
 
 def signal_handler(sig, frame):
-    print("\nRegresando al menú...")
+    """Maneja las señales del sistema de forma elegante."""
+    console.print("\n[yellow]🔄 Regresando al menú principal...[/yellow]")
+    time.sleep(1)
     main()
 
 # --- GUI con PySide6 ---
@@ -1138,12 +1768,255 @@ def iniciar_gui():
     signal.signal(signal.SIGINT, cerrar_por_ctrl_c)
     app.exec()
 
+# --- Funciones de CLI ---
+def show_version():
+    """Muestra la versión de la aplicación con estilo."""
+    version_text = Text()
+    version_text.append("🧹 ", style="bright_blue")
+    version_text.append("py-cleaner", style="bold bright_cyan")
+    version_text.append(" v2.0.0", style="bold bright_green")
+    
+    console.print(Panel(
+        Align.center(version_text),
+        title="[bold bright_blue]📋 Información de Versión[/bold bright_blue]",
+        border_style="bright_blue"
+    ))
+    
+    # Información adicional de la versión
+    info_table = Table(show_header=False, box=box.ROUNDED, border_style="cyan")
+    info_table.add_column("Atributo", style="bold cyan")
+    info_table.add_column("Valor", style="bright_white")
+    
+    info_table.add_row("🏷️ Versión", "2.0.0")
+    info_table.add_row("📅 Fecha", "Agosto 2025")
+    info_table.add_row("🎨 Framework UI", "Rich + Typer")
+    info_table.add_row("🐍 Python mínimo", "3.8+")
+    info_table.add_row("🌐 Licencia", "MIT")
+    info_table.add_row("👨‍💻 Autor", "partybrasil")
+    
+    console.print(Panel(
+        info_table,
+        title="[bold cyan]ℹ️ Detalles[/bold cyan]",
+        border_style="cyan"
+    ))
+
+def show_help():
+    """Muestra la ayuda de uso de la aplicación con estilo."""
+    # Banner de ayuda
+    help_banner = Text()
+    help_banner.append("🛠️ ", style="bright_yellow")
+    help_banner.append("AYUDA DE USO", style="bold bright_cyan")
+    help_banner.append(" - py-cleaner v2.0", style="bright_green")
+    
+    console.print(Panel(
+        Align.center(help_banner),
+        title="[bold bright_blue]📚 Manual de Usuario[/bold bright_blue]",
+        border_style="bright_blue"
+    ))
+    
+    # Tabla de comandos
+    commands_table = Table(show_header=True, header_style="bold magenta", box=box.ROUNDED)
+    commands_table.add_column("🔧 Comando", style="bold cyan", min_width=25)
+    commands_table.add_column("📝 Descripción", style="bright_white")
+    commands_table.add_column("💡 Ejemplo", style="green")
+    
+    commands_table.add_row(
+        "python py-cleaner.py",
+        "Ejecuta la interfaz CLI interactiva moderna",
+        "python py-cleaner.py"
+    )
+    commands_table.add_row(
+        "python py-cleaner.py --gui",
+        "Ejecuta la interfaz gráfica (GUI) con PySide6",
+        "python py-cleaner.py --gui"
+    )
+    commands_table.add_row(
+        "python py-cleaner.py --help",
+        "Muestra esta ayuda de uso y sale",
+        "python py-cleaner.py --help"
+    )
+    commands_table.add_row(
+        "python py-cleaner.py --version",
+        "Muestra la versión de la aplicación y sale",
+        "python py-cleaner.py --version"
+    )
+    
+    console.print(Panel(
+        commands_table,
+        title="[bold cyan]⚙️ Opciones de Línea de Comandos[/bold cyan]",
+        border_style="cyan"
+    ))
+    
+    # Descripción de funcionalidades
+    features_md = """
+## 🎯 Funcionalidades Principales
+
+### 🔧 **Gestión de Entornos Virtuales**
+- ⚡ Activación automática de entornos virtuales
+- 🆕 Creación de nuevos entornos
+- 🔍 Verificación del estado del entorno activo
+
+### 📦 **Gestión de Dependencias**
+- 📊 Generación de reportes detallados de paquetes instalados
+- 🧹 Desinstalación masiva de todas las dependencias
+- 🎯 Desinstalación selectiva con interfaz interactiva
+- 📋 Tablas estilizadas con información de versiones
+
+### 🎨 **Interfaz Moderna**
+- 🌈 Colores vibrantes y emojis contextuales
+- 📊 Barras de progreso animadas
+- 📋 Menús interactivos con validación
+- 🎭 Arte ASCII y paneles estilizados
+
+### 🛠️ **Herramientas Avanzadas**
+- 🖥️ Interfaz gráfica opcional (--gui)
+- 💻 Comandos manuales con ejemplos
+- 📚 Documentación integrada
+- 🔄 Regeneración automática de reportes
+    """
+    
+    console.print(Panel(
+        Markdown(features_md),
+        title="[bold green]✨ Características[/bold green]",
+        border_style="green"
+    ))
+    
+    # Ejemplos de uso práctico
+    examples_md = """
+## 🚀 Flujo de Trabajo Típico
+
+1. **Activar entorno virtual:**
+   ```bash
+   python py-cleaner.py
+   # Seleccionar opción 1: ⚡ Ejecutar Script Activador
+   ```
+
+2. **Generar reporte de dependencias:**
+   ```bash
+   python py-cleaner.py
+   # Seleccionar opción 2: 📄 Generar Reporte de Dependencias
+   ```
+
+3. **Limpieza selectiva:**
+   ```bash
+   python py-cleaner.py
+   # Seleccionar opción 4: 🎯 Desinstalar Dependencias (Selectivo)
+   ```
+
+4. **Interfaz gráfica:**
+   ```bash
+   python py-cleaner.py --gui
+   ```
+    """
+    
+    console.print(Panel(
+        Markdown(examples_md),
+        title="[bold yellow]💡 Ejemplos de Uso[/bold yellow]",
+        border_style="yellow"
+    ))
+    
+    # Nota final
+    footer_text = Text()
+    footer_text.append("💡 ", style="bright_yellow")
+    footer_text.append("Tip: ", style="bold yellow")
+    footer_text.append("Para mejores resultados, asegúrese de activar su entorno virtual antes de usar las funciones de gestión de dependencias.", style="cyan")
+    
+    console.print(Panel(
+        footer_text,
+        title="[bold blue]📌 Recomendación[/bold blue]",
+        border_style="blue"
+    ))
+
+def parse_command_line_args():
+    """Parsea los argumentos de línea de comandos y ejecuta acciones correspondientes."""
+    args = sys.argv[1:]  # Excluir el nombre del script
+    
+    # Verificar argumentos de ayuda y versión (tienen prioridad)
+    if "--help" in args or "-h" in args:
+        show_help()
+        return "exit"
+    
+    if "--version" in args or "-v" in args:
+        show_version()
+        return "exit"
+    
+    # Verificar modo GUI
+    if "--gui" in args:
+        return "gui"
+    
+    # Si no hay argumentos especiales, modo CLI normal
+    return "cli"
+
 # --- Arranque híbrido CLI/GUI ---
 if __name__ == "__main__":
-    if "--gui" in sys.argv:
+    # Configurar manejo de señales
+    signal.signal(signal.SIGINT, signal_handler)
+    
+    # Parsear argumentos de línea de comandos
+    mode = parse_command_line_args()
+    
+    if mode == "exit":
+        # Salir después de mostrar ayuda o versión
+        sys.exit(0)
+    elif mode == "gui":
+        console.print("[bold green]🖥️ Iniciando interfaz gráfica...[/bold green]")
         iniciar_gui()
     else:
-        print("Bienvenido a la Herramienta de Limpieza de Python")
-        print("Por favor, asegúrese de que el entorno virtual esté activado antes de ejecutar esta aplicación.")
-        signal.signal(signal.SIGINT, signal_handler)
-        main()
+        # Verificar si Rich está disponible para CLI moderno
+        try:
+            # Mensaje inicial sobre la versión mejorada
+            startup_text = Text()
+            startup_text.append("🎨 ", style="bright_yellow")
+            startup_text.append("Interfaz CLI mejorada con Rich", style="bold bright_cyan")
+            startup_text.append(" - ¡Disfruta de la nueva experiencia visual! ✨", style="bright_green")
+            
+            console.print(Panel(
+                Align.center(startup_text),
+                title="[bold bright_blue]🚀 py-cleaner v2.0[/bold bright_blue]",
+                subtitle="[dim]Herramienta de limpieza con interfaz moderna[/dim]",
+                border_style="bright_blue"
+            ))
+            
+            # Iniciar aplicación CLI moderna
+            main()
+            
+        except ImportError:
+            # Fallback a CLI clásico si Rich no está disponible
+            print("⚠️ Rich no está disponible. Ejecutando en modo clásico...")
+            print("💡 Instale Rich con: pip install rich")
+            print("Bienvenido a la Herramienta de Limpieza de Python")
+            print("Por favor, asegúrese de que el entorno virtual esté activado antes de ejecutar esta aplicación.")
+            
+            # Función main clásica como respaldo
+            def main_classic():
+                while True:
+                    venv_status = "VIRTUAL" if is_venv_active() else "GLOBAL"
+                    print(f"\nEntorno/Ambiente Python Activo: {venv_status}")
+                    print("\nHerramienta de Limpieza de Python")
+                    print("1. Ejecutar Script Activador")
+                    print("2. Generar Reporte de Dependencias Instaladas")
+                    print("3. Desinstalar dependencias de Python (Todas)")
+                    print("4. Desinstalar dependencias de Python (Selectivo)")
+                    print("5. Verificar Entorno de Python")
+                    print("6. Comando Manual")
+                    print("7. Salir")
+                    choice = input("Elija una opción: ")
+                    if choice == '1':
+                        execute_activator()
+                    elif choice == '2':
+                        generate_report()
+                    elif choice == '3':
+                        uninstall_dependencies()
+                    elif choice == '4':
+                        uninstall_dependencies_selective()
+                    elif choice == '5':
+                        check_environment()
+                    elif choice == '6':
+                        manual_command()
+                    elif choice == '7':
+                        print("Saliendo...")
+                        raise SystemExit
+                    else:
+                        print("Opción inválida. Por favor, intente de nuevo.")
+            
+            main_classic()
