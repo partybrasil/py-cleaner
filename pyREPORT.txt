@@ -1,5 +1,5 @@
 # Reporte de Dependencias - py-cleaner
-# Generado: 2025-08-04 14:33:40
+# Generado: 2025-08-04 14:53:32
 # Ambiente: global
 # Python: Python 3.13.5
 # Ejecutable: C:\Users\usuario\AppData\Local\Programs\Python\Python313/python.exe

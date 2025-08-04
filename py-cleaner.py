@@ -1649,109 +1649,464 @@ def iniciar_gui():
             except Exception as e:
                 return False, str(e)
 
-    class ConsoleWidget(QWidget):
+    class TrueEmbeddedConsole(QWidget):
+        """Consola embebida verdadera que maneja entornos virtuales de forma independiente."""
+        
         def __init__(self, parent=None):
             super().__init__(parent)
+            self.init_ui()
+            self.init_environment()
+            
+        def init_ui(self):
+            """Inicializa la interfaz de usuario."""
             layout = QVBoxLayout()
+            
+            # Header con información del entorno activo
+            self.env_header = QLabel("🐍 Python Sistema (Ningún VENV activo)")
+            self.env_header.setStyleSheet("""
+                QLabel {
+                    background: #2d2d2d;
+                    color: #f0f0f0;
+                    padding: 8px;
+                    border-radius: 5px;
+                    font-weight: bold;
+                    border: 1px solid #555;
+                }
+            """)
+            layout.addWidget(self.env_header)
+            
+            # Console output
             self.console = QPlainTextEdit()
             self.console.setReadOnly(True)
-            self.console.setStyleSheet("background: #111; color: #eee; font-family: Consolas, monospace; font-size: 13px;")
-            # Botón de refresco discreto
-            self.btn_refresh = QPushButton("🔄")
-            self.btn_refresh.setFixedSize(32, 32)
-            self.btn_refresh.setToolTip("Reiniciar Terminal/Consola InAPP")
-            self.btn_refresh.setStyleSheet("background: #222; color: #8be9fd; border-radius: 8px; font-size: 18px;")
-            self.btn_refresh.clicked.connect(self.reiniciar_consola)
-
-            self.input_line = QLineEdit()
-            self.input_line.setPlaceholderText("Escribe un comando y presiona Enter...")
-            self.input_line.returnPressed.connect(self.send_command)
-
-            # Layout horizontal para botón y input
-            input_layout = QHBoxLayout()
-            input_layout.addWidget(self.btn_refresh)
-            input_layout.addWidget(self.input_line)
-
+            self.console.setStyleSheet("""
+                QPlainTextEdit {
+                    background: #1e1e1e;
+                    color: #d4d4d4;
+                    font-family: 'Cascadia Code', 'Consolas', 'Courier New', monospace;
+                    font-size: 14px;
+                    border: 1px solid #555;
+                    border-radius: 5px;
+                    padding: 8px;
+                }
+            """)
+            
+            # Toolbar con comandos rápidos
+            toolbar_layout = QHBoxLayout()
+            
+            # Botones de comandos rápidos
+            self.btn_activate = QPushButton("🔄 Activar VENV")
+            self.btn_activate.setToolTip("Activar entorno virtual local (.venv)")
+            self.btn_activate.clicked.connect(self.activate_local_venv)
+            
+            self.btn_deactivate = QPushButton("🚫 Desactivar")
+            self.btn_deactivate.setToolTip("Volver al entorno sistema")
+            self.btn_deactivate.clicked.connect(self.deactivate_venv)
+            
+            self.btn_pip_list = QPushButton("📦 pip list")
+            self.btn_pip_list.setToolTip("Listar paquetes instalados")
+            self.btn_pip_list.clicked.connect(lambda: self.execute_command("pip list"))
+            
+            self.btn_clear = QPushButton("🧹 Limpiar")
+            self.btn_clear.setToolTip("Limpiar consola")
+            self.btn_clear.clicked.connect(self.clear_console)
+            
+            # Estilo para botones
+            button_style = """
+                QPushButton {
+                    background: #0e639c;
+                    color: white;
+                    border: none;
+                    padding: 6px 12px;
+                    border-radius: 4px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background: #1177bb;
+                }
+                QPushButton:pressed {
+                    background: #0d5a8a;
+                }
+            """
+            
+            for btn in [self.btn_activate, self.btn_deactivate, self.btn_pip_list, self.btn_clear]:
+                btn.setStyleSheet(button_style)
+                toolbar_layout.addWidget(btn)
+            
+            toolbar_layout.addStretch()
+            layout.addLayout(toolbar_layout)
             layout.addWidget(self.console)
+            
+            # Input area
+            input_layout = QHBoxLayout()
+            
+            self.input_line = QLineEdit()
+            self.input_line.setPlaceholderText("Escribe un comando (python, pip, etc.) y presiona Enter...")
+            self.input_line.setStyleSheet("""
+                QLineEdit {
+                    background: #2d2d2d;
+                    color: #f0f0f0;
+                    border: 1px solid #555;
+                    border-radius: 4px;
+                    padding: 8px;
+                    font-family: 'Cascadia Code', 'Consolas', monospace;
+                    font-size: 14px;
+                }
+                QLineEdit:focus {
+                    border: 1px solid #0e639c;
+                }
+            """)
+            self.input_line.returnPressed.connect(self.send_command)
+            
+            self.btn_send = QPushButton("▶ Ejecutar")
+            self.btn_send.setStyleSheet(button_style)
+            self.btn_send.clicked.connect(self.send_command)
+            
+            input_layout.addWidget(QLabel("❯"))
+            input_layout.addWidget(self.input_line)
+            input_layout.addWidget(self.btn_send)
+            
             layout.addLayout(input_layout)
             self.setLayout(layout)
-            self.process = None
-            self.current_python = sys.executable
-            self.reiniciar_consola()
-
-        def reiniciar_consola(self):
-            """Limpia la consola y muestra el prompt y el path de Python activo."""
-            self.console.clear()
-            self.console.appendPlainText(f"🔄 Terminal InAPP listo. Python activo: {self.current_python}")
-            self.console.appendPlainText("> ")
-        def set_python(self, python_path):
-            self.current_python = python_path
-        def send_command(self):
-            cmd = self.input_line.text()
-            if not cmd.strip():
+        
+        def init_environment(self):
+            """Inicializa el sistema de gestión de entornos."""
+            # Copiar las variables de entorno del sistema
+            self.base_env = os.environ.copy()
+            self.current_env = self.base_env.copy()
+            
+            # Estado del entorno
+            self.venv_active = False
+            self.venv_path = None
+            self.python_executable = sys.executable
+            self.pip_executable = sys.executable
+            
+            # Mostrar mensaje inicial
+            self.append_output("🚀 Consola Embebida Avanzada iniciada")
+            self.append_output("💡 Tip: Use 'activate' para activar el VENV local o escriba comandos directamente")
+            self.append_output("📝 Comandos especiales: activate, deactivate, venv-info, help")
+            self.append_output("")
+            self.update_env_display()
+        
+        def append_output(self, text, color=None):
+            """Añade texto a la consola de forma thread-safe."""
+            from PySide6.QtCore import QTimer
+            def _append():
+                if color:
+                    # Para futuras mejoras con colores
+                    self.console.appendPlainText(text)
+                else:
+                    self.console.appendPlainText(text)
+            QTimer.singleShot(0, _append)
+        
+        def update_env_display(self):
+            """Actualiza la visualización del entorno activo."""
+            if self.venv_active and self.venv_path:
+                venv_name = os.path.basename(self.venv_path)
+                self.env_header.setText(f"🔴 VENV Activo: {venv_name} - {self.python_executable}")
+                self.env_header.setStyleSheet("""
+                    QLabel {
+                        background: #2d5a2d;
+                        color: #90ee90;
+                        padding: 8px;
+                        border-radius: 5px;
+                        font-weight: bold;
+                        border: 1px solid #4a8a4a;
+                    }
+                """)
+            else:
+                self.env_header.setText(f"🌐 Sistema Global - {self.python_executable}")
+                self.env_header.setStyleSheet("""
+                    QLabel {
+                        background: #5a2d2d;
+                        color: #ffb6b6;
+                        padding: 8px;
+                        border-radius: 5px;
+                        font-weight: bold;
+                        border: 1px solid #8a4a4a;
+                    }
+                """)
+        
+        def activate_local_venv(self):
+            """Activa el entorno virtual local (.venv)."""
+            local_venv_path = os.path.join(os.getcwd(), ".venv")
+            
+            if os.name == 'nt':  # Windows
+                scripts_dir = os.path.join(local_venv_path, "Scripts")
+                python_exe = os.path.join(scripts_dir, "python.exe")
+                pip_exe = os.path.join(scripts_dir, "pip.exe")
+            else:  # Unix/Linux/Mac
+                scripts_dir = os.path.join(local_venv_path, "bin")
+                python_exe = os.path.join(scripts_dir, "python")
+                pip_exe = os.path.join(scripts_dir, "pip")
+            
+            if not os.path.exists(python_exe):
+                self.append_output(f"❌ ERROR: No se encontró VENV local en {local_venv_path}")
+                self.append_output("💡 Sugerencia: Cree primero un VENV con 'python -m venv .venv'")
+                return False
+            
+            # Activar el entorno virtual modificando las variables de entorno
+            self.current_env = self.base_env.copy()
+            
+            # Modificar PATH para priorizar el scripts dir del venv
+            current_path = self.current_env.get('PATH', '')
+            self.current_env['PATH'] = f"{scripts_dir}{os.pathsep}{current_path}"
+            
+            # Establecer VIRTUAL_ENV
+            self.current_env['VIRTUAL_ENV'] = local_venv_path
+            
+            # Actualizar ejecutables
+            self.python_executable = python_exe
+            self.pip_executable = pip_exe
+            self.venv_active = True
+            self.venv_path = local_venv_path
+            
+            # Mostrar confirmación
+            self.append_output(f"✅ VENV LOCAL activado: {local_venv_path}")
+            self.append_output(f"🐍 Python: {python_exe}")
+            self.append_output(f"📦 Pip: {pip_exe}")
+            self.update_env_display()
+            
+            # Sincronizar con el gestor global de la app
+            try:
+                env_manager.switch_to_local_venv()
+            except:
+                pass  # No fallar si hay problemas con el sync
+            
+            return True
+        
+        def activate_external_venv(self, venv_path):
+            """Activa un entorno virtual externo."""
+            if not os.path.exists(venv_path):
+                self.append_output(f"❌ ERROR: Ruta de VENV no existe: {venv_path}")
+                return False
+            
+            if os.name == 'nt':  # Windows
+                scripts_dir = os.path.join(venv_path, "Scripts")
+                python_exe = os.path.join(scripts_dir, "python.exe")
+                pip_exe = os.path.join(scripts_dir, "pip.exe")
+            else:  # Unix/Linux/Mac
+                scripts_dir = os.path.join(venv_path, "bin")
+                python_exe = os.path.join(scripts_dir, "python")
+                pip_exe = os.path.join(scripts_dir, "pip")
+            
+            if not os.path.exists(python_exe):
+                self.append_output(f"❌ ERROR: No se encontró python en {python_exe}")
+                return False
+            
+            # Activar el entorno virtual
+            self.current_env = self.base_env.copy()
+            current_path = self.current_env.get('PATH', '')
+            self.current_env['PATH'] = f"{scripts_dir}{os.pathsep}{current_path}"
+            self.current_env['VIRTUAL_ENV'] = venv_path
+            
+            self.python_executable = python_exe
+            self.pip_executable = pip_exe
+            self.venv_active = True
+            self.venv_path = venv_path
+            
+            self.append_output(f"✅ VENV EXTERNO activado: {venv_path}")
+            self.append_output(f"🐍 Python: {python_exe}")
+            self.update_env_display()
+            
+            # Sincronizar con el gestor global
+            try:
+                env_manager.switch_to_external_venv(venv_path)
+            except:
+                pass
+            
+            return True
+        
+        def deactivate_venv(self):
+            """Desactiva el entorno virtual actual."""
+            if not self.venv_active:
+                self.append_output("⚠️ No hay ningún VENV activo")
                 return
-            self.console.appendPlainText(f"> {cmd}")
+            
+            # Restaurar entorno base
+            self.current_env = self.base_env.copy()
+            self.python_executable = sys.executable
+            self.pip_executable = sys.executable
+            self.venv_active = False
+            self.venv_path = None
+            
+            self.append_output("✅ VENV desactivado - Volviendo al sistema global")
+            self.append_output(f"🐍 Python: {self.python_executable}")
+            self.update_env_display()
+            
+            # Sincronizar con el gestor global
+            try:
+                env_manager.switch_to_system()
+            except:
+                pass
+        
+        def clear_console(self):
+            """Limpia la consola."""
+            self.console.clear()
+            self.append_output("🧹 Consola limpiada")
+            self.update_env_display()
+        
+        def execute_command(self, command):
+            """Ejecuta un comando programáticamente."""
+            self.input_line.setText(command)
+            self.send_command()
+        
+        def send_command(self):
+            """Envía y ejecuta el comando ingresado."""
+            cmd = self.input_line.text().strip()
+            if not cmd:
+                return
+            
+            self.append_output(f"❯ {cmd}")
             self.input_line.clear()
+            
+            # Procesar comandos especiales
+            if cmd.lower() == "activate":
+                self.activate_local_venv()
+                return
+            elif cmd.lower() == "deactivate":
+                self.deactivate_venv()
+                return
+            elif cmd.lower() == "venv-info":
+                self.show_venv_info()
+                return
+            elif cmd.lower() in ["help", "?"]:
+                self.show_help()
+                return
+            elif cmd.lower() == "clear":
+                self.clear_console()
+                return
+            
+            # Ejecutar comando en hilo separado para no bloquear UI
             import threading
-            def run():
+            threading.Thread(target=self._execute_command_thread, args=(cmd,), daemon=True).start()
+        
+        def _execute_command_thread(self, cmd):
+            """Ejecuta el comando en un hilo separado."""
+            try:
+                # Preparar el comando
+                parts = cmd.strip().split()
+                
+                # Reemplazar comandos genéricos con los específicos del entorno
+                if parts[0] == "python":
+                    parts[0] = self.python_executable
+                elif parts[0] == "pip":
+                    parts[0] = self.pip_executable
+                
+                # Ejecutar con el entorno correcto
+                proc = subprocess.Popen(
+                    parts,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    shell=True,  # ✅ Usar shell para herencia de entorno
+                    env=self.current_env,  # ✅ Pasar entorno modificado
+                    cwd=os.getcwd()
+                )
+                
                 try:
-                    parts = cmd.strip().split()
-                    if parts[0] in ["python", "pip"]:
-                        parts[0] = self.current_python
-                    # Detecta si el comando es interactivo (usa 'input')
-                    # Si es un script python, busca si contiene 'input('
-                    is_interactive = False
-                    if parts[0].endswith("python.exe") and len(parts) > 1 and parts[1] == "-m":
-                        # No podemos saber si el módulo usa input, así que asumimos no interactivo
-                        is_interactive = False
-                    elif parts[0].endswith("python.exe") and len(parts) > 1 and parts[1].endswith(".py"):
-                        try:
-                            with open(parts[1], "r", encoding="utf-8") as f:
-                                if "input(" in f.read():
-                                    is_interactive = True
-                        except Exception:
-                            pass
-                    proc = subprocess.Popen(parts, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE if is_interactive else None, text=True)
-                    for line in proc.stdout:
-                        self.console.appendPlainText(line.rstrip())
-                    for line in proc.stderr:
-                        self.console.appendPlainText(line.rstrip())
-                    # Si no es interactivo, muestra el prompt
-                    if not is_interactive:
-                        self.console.appendPlainText("> ")
-                except Exception as e:
-                    self.console.appendPlainText(f"Error: {e}")
-                    self.console.appendPlainText("> ")
-            threading.Thread(target=run, daemon=True).start()
+                    stdout, stderr = proc.communicate(timeout=60)
+                    
+                    # Mostrar salida estándar
+                    if stdout:
+                        for line in stdout.strip().split('\n'):
+                            if line.strip():
+                                self.append_output(line)
+                    
+                    # Mostrar errores
+                    if stderr:
+                        for line in stderr.strip().split('\n'):
+                            if line.strip():
+                                self.append_output(f"🔴 ERROR: {line}")
+                    
+                    # Mostrar código de salida si no es exitoso
+                    if proc.returncode != 0:
+                        self.append_output(f"⚠️ Proceso terminado con código: {proc.returncode}")
+                    else:
+                        self.append_output("✅ Comando ejecutado exitosamente")
+                
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    self.append_output("⏰ ERROR: Comando excedió tiempo límite (60s)")
+                
+            except Exception as e:
+                self.append_output(f"💥 ERROR al ejecutar comando: {str(e)}")
+            
+            self.append_output("")  # Línea en blanco para separar
+        
+        def show_venv_info(self):
+            """Muestra información detallada del entorno actual."""
+            self.append_output("📊 INFORMACIÓN DEL ENTORNO VIRTUAL")
+            self.append_output("=" * 50)
+            
+            if self.venv_active:
+                self.append_output(f"🔴 Estado: VENV ACTIVO")
+                self.append_output(f"📂 Ruta VENV: {self.venv_path}")
+                self.append_output(f"🐍 Python: {self.python_executable}")
+                self.append_output(f"📦 Pip: {self.pip_executable}")
+                self.append_output(f"🔗 VIRTUAL_ENV: {self.current_env.get('VIRTUAL_ENV', 'No establecido')}")
+            else:
+                self.append_output(f"🌐 Estado: SISTEMA GLOBAL")
+                self.append_output(f"🐍 Python: {self.python_executable}")
+                self.append_output(f"📦 Pip: {self.pip_executable}")
+            
+            self.append_output(f"📁 Directorio: {os.getcwd()}")
+            self.append_output("")
+        
+        def show_help(self):
+            """Muestra ayuda de comandos disponibles."""
+            help_text = """
+📚 AYUDA - COMANDOS DISPONIBLES
+===============================
+
+🔧 COMANDOS ESPECIALES:
+  activate        - Activar VENV local (.venv)
+  deactivate      - Desactivar VENV actual
+  venv-info       - Mostrar información del entorno
+  clear           - Limpiar consola
+  help, ?         - Mostrar esta ayuda
+
+🐍 COMANDOS PYTHON/PIP:
+  python --version          - Ver versión de Python
+  pip list                  - Listar paquetes instalados
+  pip install <paquete>     - Instalar paquete
+  pip uninstall <paquete>   - Desinstalar paquete
+  pip freeze                - Mostrar dependencias
+
+💡 NOTAS:
+  • Los comandos 'python' y 'pip' usan automáticamente el entorno activo
+  • Todos los comandos se ejecutan en el contexto del VENV si está activo
+  • Los cambios persisten durante la sesión de la aplicación
+            """
+            
+            for line in help_text.strip().split('\n'):
+                self.append_output(line)
+            self.append_output("")
+        
+        def set_python(self, python_path):
+            """Compatibilidad con el sistema anterior - actualiza el entorno."""
+            if os.path.exists(python_path):
+                # Determinar si es un venv basándose en la ruta
+                parent_dir = os.path.dirname(os.path.dirname(python_path))
+                if os.path.exists(os.path.join(parent_dir, "pyvenv.cfg")):
+                    # Es un venv
+                    self.activate_external_venv(parent_dir)
+                else:
+                    # Es sistema global
+                    self.deactivate_venv()
+                    self.python_executable = python_path
+                    self.pip_executable = python_path
+                    self.update_env_display()
+        
         def send_command_from_gui(self, cmd):
-            self.console.appendPlainText(f"> {cmd}")
-            import threading
-            def run():
-                try:
-                    parts = cmd.strip().split()
-                    if parts[0] in ["python", "pip"]:
-                        parts[0] = self.current_python
-                    is_interactive = False
-                    if parts[0].endswith("python.exe") and len(parts) > 1 and parts[1] == "-m":
-                        is_interactive = False
-                    elif parts[0].endswith("python.exe") and len(parts) > 1 and parts[1].endswith(".py"):
-                        try:
-                            with open(parts[1], "r", encoding="utf-8") as f:
-                                if "input(" in f.read():
-                                    is_interactive = True
-                        except Exception:
-                            pass
-                    proc = subprocess.Popen(parts, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE if is_interactive else None, text=True)
-                    for line in proc.stdout:
-                        self.console.appendPlainText(line.rstrip())
-                    for line in proc.stderr:
-                        self.console.appendPlainText(line.rstrip())
-                    if not is_interactive:
-                        self.console.appendPlainText("> ")
-                except Exception as e:
-                    self.console.appendPlainText(f"Error: {e}")
-                    self.console.appendPlainText("> ")
-            threading.Thread(target=run, daemon=True).start()
+            """Compatibilidad con el sistema anterior - ejecuta comando desde GUI."""
+            self.execute_command(cmd)
+        
+        def reiniciar_consola(self):
+            """Compatibilidad con el sistema anterior - reinicia la consola."""
+            self.clear_console()
+
+    # Alias para compatibilidad
+    ConsoleWidget = TrueEmbeddedConsole
 
     class MoveCornerWidget(QWidget):
         def __init__(self, parent=None):
