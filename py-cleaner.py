@@ -27,49 +27,212 @@ from rich.markdown import Markdown
 # Configuración de consola
 console = Console()
 
+# --- Gestión de Ambientes ---
+class EnvironmentManager:
+    """Clase para gestionar diferentes ambientes de Python de forma segura."""
+    
+    def __init__(self):
+        self.current_env = "system"  # system, local_venv, external_venv
+        self.python_executable = sys.executable
+        self.venv_path = None
+        self.external_venv_path = None
+        
+    def detect_environment(self) -> dict:
+        """Detecta el entorno actual y devuelve información detallada."""
+        info = {
+            "is_venv": sys.prefix != sys.base_prefix,
+            "python_executable": sys.executable,
+            "python_version": sys.version.split()[0],
+            "venv_path": sys.prefix if sys.prefix != sys.base_prefix else None,
+            "base_prefix": sys.base_prefix,
+            "current_dir": os.getcwd(),
+            "virtual_env": os.environ.get('VIRTUAL_ENV', None)
+        }
+        
+        # Detectar tipo de ambiente
+        if info["is_venv"]:
+            # Verificar si es local (en directorio actual)
+            local_venv_path = os.path.join(os.getcwd(), ".venv")
+            if (info["venv_path"] and 
+                os.path.abspath(info["venv_path"]) == os.path.abspath(local_venv_path)):
+                info["env_type"] = "local_venv"
+                self.current_env = "local_venv"
+                self.venv_path = local_venv_path
+            else:
+                info["env_type"] = "external_venv" 
+                self.current_env = "external_venv"
+                self.external_venv_path = info["venv_path"]
+        else:
+            info["env_type"] = "system"
+            self.current_env = "system"
+            
+        return info
+    
+    def get_pip_executable(self) -> str:
+        """Obtiene el ejecutable de pip correcto para el entorno actual."""
+        if self.current_env == "system":
+            return sys.executable
+        elif self.current_env == "local_venv":
+            if os.name == 'nt':  # Windows
+                return os.path.join(self.venv_path, "Scripts", "python.exe")
+            else:  # Unix/Linux/Mac
+                return os.path.join(self.venv_path, "bin", "python")
+        elif self.current_env == "external_venv" and self.external_venv_path:
+            if os.name == 'nt':  # Windows
+                return os.path.join(self.external_venv_path, "Scripts", "python.exe")
+            else:  # Unix/Linux/Mac
+                return os.path.join(self.external_venv_path, "bin", "python")
+        else:
+            return sys.executable
+    
+    def switch_to_system(self):
+        """Cambia al ambiente sistema/global."""
+        self.current_env = "system"
+        self.python_executable = sys.base_prefix + ("/python.exe" if os.name == 'nt' else "/bin/python")
+        console.print("[bold yellow]⚠️ Cambiado a ambiente SISTEMA/GLOBAL[/bold yellow]")
+        return True
+    
+    def switch_to_local_venv(self) -> bool:
+        """Cambia al venv local (.venv en directorio actual)."""
+        local_venv_path = os.path.join(os.getcwd(), ".venv")
+        
+        if os.name == 'nt':  # Windows
+            python_exe = os.path.join(local_venv_path, "Scripts", "python.exe")
+        else:  # Unix/Linux/Mac
+            python_exe = os.path.join(local_venv_path, "bin", "python")
+            
+        if os.path.exists(python_exe):
+            self.current_env = "local_venv"
+            self.venv_path = local_venv_path
+            self.python_executable = python_exe
+            console.print(f"[bold green]✅ Cambiado a VENV LOCAL: {local_venv_path}[/bold green]")
+            return True
+        else:
+            console.print(f"[bold red]❌ No se encontró VENV local en: {local_venv_path}[/bold red]")
+            return False
+    
+    def switch_to_external_venv(self, venv_path: str) -> bool:
+        """Cambia a un venv externo especificado."""
+        if not os.path.exists(venv_path):
+            console.print(f"[bold red]❌ Ruta de VENV no existe: {venv_path}[/bold red]")
+            return False
+            
+        if os.name == 'nt':  # Windows
+            python_exe = os.path.join(venv_path, "Scripts", "python.exe")
+        else:  # Unix/Linux/Mac
+            python_exe = os.path.join(venv_path, "bin", "python")
+            
+        if os.path.exists(python_exe):
+            self.current_env = "external_venv"
+            self.external_venv_path = venv_path
+            self.python_executable = python_exe
+            console.print(f"[bold green]✅ Cambiado a VENV EXTERNO: {venv_path}[/bold green]")
+            return True
+        else:
+            console.print(f"[bold red]❌ No se encontró Python ejecutable en: {python_exe}[/bold red]")
+            return False
+
+# Instancia global del gestor de ambientes
+env_manager = EnvironmentManager()
+
 def is_venv_active() -> bool:
     """Verifica si un entorno virtual está activo."""
-    return sys.prefix != sys.base_prefix
+    return env_manager.detect_environment()["is_venv"]
 
 def show_environment_status():
-    """Muestra el estado actual del entorno de Python con estilo."""
-    env_type = "🔴 VIRTUAL ENV" if is_venv_active() else "🌐 GLOBAL ENV"
-    python_version = f"Python {sys.version.split()[0]}"
-    python_path = sys.executable
+    """Muestra el estado actual del entorno de Python con estilo mejorado."""
+    env_info = env_manager.detect_environment()
+    
+    # Mapeo de tipos de ambiente con emojis y colores
+    env_types = {
+        "system": ("🌐 AMBIENTE SISTEMA/GLOBAL", "red"),
+        "local_venv": ("🔴 VENV LOCAL (.venv)", "green"), 
+        "external_venv": ("🟠 VENV EXTERNO", "yellow")
+    }
+    
+    env_type_display, env_color = env_types.get(env_info["env_type"], ("❓ DESCONOCIDO", "white"))
     
     env_table = Table(show_header=False, box=box.ROUNDED, border_style="bright_blue")
-    env_table.add_column("Atributo", style="bold cyan")
+    env_table.add_column("Atributo", style="bold cyan", width=20)
     env_table.add_column("Valor", style="bright_white")
     
-    env_table.add_row("🐍 Intérprete", python_version)
-    env_table.add_row("📍 Ubicación", python_path)
-    env_table.add_row("🌍 Tipo", env_type)
-    env_table.add_row("📁 Directorio", os.getcwd())
+    env_table.add_row("🐍 Intérprete Python", env_info["python_version"])
+    env_table.add_row("📍 Ubicación Ejecutable", env_info["python_executable"])
+    env_table.add_row("🌍 Tipo de Ambiente", f"[{env_color}]{env_type_display}[/{env_color}]")
+    env_table.add_row("📁 Directorio Actual", env_info["current_dir"])
+    
+    # Información adicional según el tipo de ambiente
+    if env_info["env_type"] == "local_venv":
+        env_table.add_row("📂 Ruta VENV Local", env_info["venv_path"] or "No detectado")
+    elif env_info["env_type"] == "external_venv":
+        env_table.add_row("📂 Ruta VENV Externo", env_info["venv_path"] or "No detectado")
+    elif env_info["env_type"] == "system":
+        env_table.add_row("⚠️ Advertencia", "[bold red]Trabajando en ambiente GLOBAL[/bold red]")
+    
+    # Información de VIRTUAL_ENV si está disponible
+    if env_info["virtual_env"]:
+        env_table.add_row("🔗 VIRTUAL_ENV", env_info["virtual_env"])
+    
+    # Gestor de ambiente activo
+    env_table.add_row("⚙️ Gestor Activo", f"[bold cyan]{env_manager.current_env}[/bold cyan]")
+    env_table.add_row("🔧 PIP Ejecutable", env_manager.get_pip_executable())
     
     console.print(Panel(
         env_table,
         title="[bold bright_blue]🔍 Estado del Entorno Python[/bold bright_blue]",
         border_style="bright_blue"
     ))
+    
+    # Advertencia de seguridad si está en ambiente global
+    if env_info["env_type"] == "system":
+        warning_text = Text()
+        warning_text.append("⚠️ ADVERTENCIA: ", style="bold red")
+        warning_text.append("Está trabajando en el ambiente GLOBAL de Python. ", style="yellow")
+        warning_text.append("Se recomienda usar un entorno virtual para evitar conflictos.", style="yellow")
+        
+        console.print(Panel(
+            warning_text,
+            title="[bold red]🚨 Alerta de Seguridad[/bold red]",
+            border_style="red"
+        ))
 
 def generate_report() -> bool:
-    """Genera un reporte de dependencias instaladas con interfaz moderna."""
-    with console.status("[bold green]📊 Generando reporte de dependencias...", spinner="dots"):
+    """Genera un reporte de dependencias instaladas con interfaz moderna y ambiente correcto."""
+    env_info = env_manager.detect_environment()
+    pip_executable = env_manager.get_pip_executable()
+    
+    with console.status(f"[bold green]📊 Generando reporte de dependencias ({env_info['env_type']})...", spinner="dots"):
         try:
-            result = subprocess.run([sys.executable, '-m', 'pip', 'freeze'], 
+            # Mostrar información del ambiente antes de generar el reporte
+            console.print(f"[dim]🔧 Usando: {pip_executable}[/dim]")
+            
+            result = subprocess.run([pip_executable, '-m', 'pip', 'freeze'], 
                                   capture_output=True, text=True, timeout=30)
             
             if result.returncode == 0:
-                with open('pyREPORT.txt', 'w', encoding='utf-8') as report_file:
-                    report_file.write(result.stdout)
+                # Crear reporte con información del ambiente
+                report_content = f"# Reporte de Dependencias - py-cleaner\n"
+                report_content += f"# Generado: {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                report_content += f"# Ambiente: {env_info['env_type']}\n"
+                report_content += f"# Python: {env_info['python_version']}\n"
+                report_content += f"# Ejecutable: {env_info['python_executable']}\n"
+                if env_info['venv_path']:
+                    report_content += f"# VENV Path: {env_info['venv_path']}\n"
+                report_content += f"#\n"
+                report_content += result.stdout
                 
-                # Contar dependencias
-                deps_count = len([line for line in result.stdout.split('\n') if line.strip()])
+                with open('pyREPORT.txt', 'w', encoding='utf-8') as report_file:
+                    report_file.write(report_content)
+                
+                # Contar dependencias (excluyendo comentarios)
+                deps_count = len([line for line in result.stdout.split('\n') if line.strip() and not line.startswith('#')])
                 
                 console.print(Panel(
                     f"[bold green]✅ Reporte generado exitosamente[/bold green]\n\n"
                     f"📄 Archivo: [bold cyan]pyREPORT.txt[/bold cyan]\n"
-                    f"📦 Dependencias encontradas: [bold yellow]{deps_count}[/bold yellow]",
+                    f"📦 Dependencias encontradas: [bold yellow]{deps_count}[/bold yellow]\n"
+                    f"🌍 Ambiente: [bold cyan]{env_info['env_type'].upper()}[/bold cyan]\n"
+                    f"🐍 Python: [bold green]{env_info['python_version']}[/bold green]",
                     title="[bold green]📊 Reporte de Dependencias[/bold green]",
                     border_style="green"
                 ))
@@ -77,17 +240,20 @@ def generate_report() -> bool:
             else:
                 console.print(Panel(
                     f"[bold red]❌ Error al generar reporte[/bold red]\n\n"
-                    f"[red]Error: {result.stderr}[/red]",
+                    f"[red]Error: {result.stderr}[/red]\n"
+                    f"[yellow]Ambiente: {env_info['env_type']}[/yellow]\n"
+                    f"[yellow]Ejecutable: {pip_executable}[/yellow]",
                     title="[bold red]⚠️ Error[/bold red]",
                     border_style="red"
                 ))
                 return False
                 
         except subprocess.TimeoutExpired:
-            console.print("[bold red]⏰ Timeout al generar reporte[/bold red]")
+            console.print(f"[bold red]⏰ Timeout al generar reporte desde {env_info['env_type']}[/bold red]")
             return False
         except Exception as e:
             console.print(f"[bold red]❌ Error inesperado: {e}[/bold red]")
+            console.print(f"[dim]Ambiente: {env_info['env_type']}, Ejecutable: {pip_executable}[/dim]")
             return False
 
 def show_packages_table(packages: List[str]) -> None:
@@ -164,8 +330,39 @@ def parse_selection(selection: str, max_num: int) -> List[int]:
     return sorted(set(selected_indices))
 
 def uninstall_dependencies():
-    """Desinstala todas las dependencias de forma masiva."""
+    """Desinstala todas las dependencias de forma masiva con verificaciones de seguridad."""
     console.print(Rule("[bold red]🧹 DESINSTALACIÓN MASIVA DE DEPENDENCIAS[/bold red]"))
+    
+    # Verificar ambiente actual y mostrar advertencia
+    env_info = env_manager.detect_environment()
+    pip_executable = env_manager.get_pip_executable()
+    
+    # Advertencia especial para ambiente global
+    if env_info["env_type"] == "system":
+        warning_panel = Panel(
+            "[bold red]🚨 PELIGRO - AMBIENTE GLOBAL DETECTADO 🚨[/bold red]\n\n"
+            "[yellow]Está a punto de desinstalar paquetes del ambiente GLOBAL de Python.\n"
+            "Esto puede ROMPER su instalación de Python y otras aplicaciones.[/yellow]\n\n"
+            "[bold cyan]Recomendación: Cambie a un entorno virtual antes de continuar.[/bold cyan]\n\n"
+            f"[dim]Ambiente: {env_info['env_type']}\n"
+            f"Ejecutable: {pip_executable}[/dim]",
+            title="[bold red]⚠️ ADVERTENCIA CRÍTICA[/bold red]",
+            border_style="red"
+        )
+        console.print(warning_panel)
+        
+        if not Confirm.ask("[bold red]¿ESTÁ SEGURO de continuar con el ambiente GLOBAL?[/bold red]"):
+            console.print("[yellow]✅ Operación cancelada por seguridad.[/yellow]")
+            return
+    
+    # Mostrar información del ambiente actual
+    console.print(Panel(
+        f"[bold cyan]🔧 Ambiente de trabajo:[/bold cyan] [yellow]{env_info['env_type'].upper()}[/yellow]\n"
+        f"[bold cyan]🐍 Python:[/bold cyan] [green]{env_info['python_version']}[/green]\n"
+        f"[bold cyan]📍 Ejecutable:[/bold cyan] [dim]{pip_executable}[/dim]",
+        title="[bold blue]📋 Información del Ambiente[/bold blue]",
+        border_style="blue"
+    ))
     
     if not os.path.exists('pyREPORT.txt'):
         console.print("[yellow]⚠️ pyREPORT.txt no encontrado.[/yellow]")
@@ -177,7 +374,11 @@ def uninstall_dependencies():
     
     try:
         with open('pyREPORT.txt', 'r', encoding='utf-8') as report_file:
-            dependencies = [line.strip() for line in report_file.readlines() if line.strip()]
+            content = report_file.read()
+            
+        # Filtrar solo las líneas de dependencias (no comentarios)
+        dependencies = [line.strip() for line in content.split('\n') 
+                       if line.strip() and not line.startswith('#')]
     except Exception as e:
         console.print(f"[bold red]❌ Error al leer pyREPORT.txt: {e}[/bold red]")
         return
@@ -191,10 +392,12 @@ def uninstall_dependencies():
     
     # Confirmación con advertencia
     warning_panel = Panel(
-        "[bold red]⚠️ ADVERTENCIA ⚠️[/bold red]\n\n"
+        "[bold red]⚠️ CONFIRMACIÓN FINAL ⚠️[/bold red]\n\n"
         "[yellow]Esta operación desinstalará TODAS las dependencias mostradas.\n"
         "Esta acción NO se puede deshacer.[/yellow]\n\n"
-        f"[cyan]Total de paquetes a desinstalar: {len(dependencies)}[/cyan]",
+        f"[cyan]Total de paquetes a desinstalar: {len(dependencies)}[/cyan]\n"
+        f"[cyan]Ambiente: {env_info['env_type'].upper()}[/cyan]\n"
+        f"[cyan]Python: {env_info['python_version']}[/cyan]",
         title="[bold red]🚨 Confirmación Requerida[/bold red]",
         border_style="red"
     )
@@ -205,7 +408,7 @@ def uninstall_dependencies():
         return
     
     # Ejecutar desinstalación con progreso
-    console.print(Rule("[bold green]🚀 Iniciando Desinstalación Masiva[/bold green]"))
+    console.print(Rule(f"[bold green]🚀 Iniciando Desinstalación Masiva en {env_info['env_type'].upper()}[/bold green]"))
     
     failed_packages = []
     successful_packages = []
@@ -225,7 +428,7 @@ def uninstall_dependencies():
             
             try:
                 result = subprocess.run(
-                    [sys.executable, '-m', 'pip', 'uninstall', '-y', package_name],
+                    [pip_executable, '-m', 'pip', 'uninstall', '-y', package_name],
                     capture_output=True,
                     text=True,
                     timeout=30
@@ -297,8 +500,34 @@ def show_uninstall_summary(successful: List[str], failed: List[str]) -> None:
         ))
 
 def uninstall_dependencies_selective():
-    """Desinstala dependencias de forma selectiva con interfaz Rich moderna."""
+    """Desinstala dependencias de forma selectiva con interfaz Rich moderna y ambiente seguro."""
     console.print(Rule("[bold blue]🎯 DESINSTALACIÓN SELECTIVA DE DEPENDENCIAS[/bold blue]"))
+    
+    # Verificar ambiente actual y mostrar información
+    env_info = env_manager.detect_environment()
+    pip_executable = env_manager.get_pip_executable()
+    
+    # Advertencia para ambiente global
+    if env_info["env_type"] == "system":
+        warning_panel = Panel(
+            "[bold red]⚠️ ADVERTENCIA - AMBIENTE GLOBAL[/bold red]\n\n"
+            "[yellow]Está trabajando en el ambiente GLOBAL de Python.\n"
+            "Tenga cuidado de no desinstalar paquetes críticos del sistema.[/yellow]\n\n"
+            f"[dim]Ambiente: {env_info['env_type']}\n"
+            f"Ejecutable: {pip_executable}[/dim]",
+            title="[bold yellow]🚨 Precaución[/bold yellow]",
+            border_style="yellow"
+        )
+        console.print(warning_panel)
+    
+    # Mostrar información del ambiente actual
+    console.print(Panel(
+        f"[bold cyan]🔧 Ambiente de trabajo:[/bold cyan] [yellow]{env_info['env_type'].upper()}[/yellow]\n"
+        f"[bold cyan]🐍 Python:[/bold cyan] [green]{env_info['python_version']}[/green]\n"
+        f"[bold cyan]📍 Ejecutable:[/bold cyan] [dim]{pip_executable}[/dim]",
+        title="[bold blue]📋 Información del Ambiente[/bold blue]",
+        border_style="blue"
+    ))
     
     # Verificar si existe el reporte, si no, generarlo
     if not os.path.exists('pyREPORT.txt'):
@@ -309,14 +538,18 @@ def uninstall_dependencies_selective():
     
     try:
         with open('pyREPORT.txt', 'r', encoding='utf-8') as report_file:
-            dependencies = [line.strip() for line in report_file.readlines() if line.strip()]
+            content = report_file.read()
+            
+        # Filtrar solo las líneas de dependencias (no comentarios)
+        dependencies = [line.strip() for line in content.split('\n') 
+                       if line.strip() and not line.startswith('#')]
     except Exception as e:
         console.print(f"[bold red]❌ Error al leer pyREPORT.txt: {e}[/bold red]")
         return
     
     if not dependencies:
         console.print(Panel(
-            "[yellow]ℹ️ No se encontraron dependencias instaladas.[/yellow]",
+            f"[yellow]ℹ️ No se encontraron dependencias instaladas en {env_info['env_type'].upper()}.[/yellow]",
             title="[bold yellow]📦 Estado[/bold yellow]",
             border_style="yellow"
         ))
@@ -348,7 +581,7 @@ def uninstall_dependencies_selective():
     
     console.print(Panel(
         packages_table,
-        title=f"[bold cyan]📦 Dependencias Instaladas ({len(dependencies)})[/bold cyan]",
+        title=f"[bold cyan]📦 Dependencias en {env_info['env_type'].upper()} ({len(dependencies)})[/bold cyan]",
         border_style="cyan"
     ))
     
@@ -378,7 +611,7 @@ def uninstall_dependencies_selective():
     while True:
         try:
             selection = Prompt.ask(
-                "\n[bold cyan]🎯 Selecciona los paquetes a desinstalar[/bold cyan]",
+                f"\n[bold cyan]🎯 Selecciona los paquetes a desinstalar de {env_info['env_type'].upper()}[/bold cyan]",
                 default=""
             )
             
@@ -421,7 +654,7 @@ def uninstall_dependencies_selective():
     
     console.print(Panel(
         selected_table,
-        title=f"[bold red]🗑️ Paquetes Seleccionados para Desinstalación ({len(packages_to_uninstall)})[/bold red]",
+        title=f"[bold red]🗑️ Paquetes Seleccionados para Desinstalación de {env_info['env_type'].upper()} ({len(packages_to_uninstall)})[/bold red]",
         border_style="red"
     ))
     
@@ -429,7 +662,7 @@ def uninstall_dependencies_selective():
     warning_text = Text()
     warning_text.append("⚠️ ADVERTENCIA: ", style="bold red")
     warning_text.append("Esta operación NO se puede deshacer.\n", style="yellow")
-    warning_text.append(f"Se desinstalarán {len(packages_to_uninstall)} paquetes.", style="cyan")
+    warning_text.append(f"Se desinstalarán {len(packages_to_uninstall)} paquetes del ambiente {env_info['env_type'].upper()}.", style="cyan")
     
     console.print(Panel(
         Align.center(warning_text),
@@ -437,12 +670,12 @@ def uninstall_dependencies_selective():
         border_style="red"
     ))
     
-    if not Confirm.ask("\n[bold red]¿Confirma la desinstalación de estos paquetes?[/bold red]"):
+    if not Confirm.ask(f"\n[bold red]¿Confirma la desinstalación de estos paquetes del {env_info['env_type'].upper()}?[/bold red]"):
         console.print("[yellow]❌ Operación cancelada por el usuario.[/yellow]")
         return
     
     # Ejecutar desinstalación con barra de progreso avanzada
-    console.print(Rule(f"[bold green]🚀 Iniciando Desinstalación de {len(packages_to_uninstall)} Paquetes[/bold green]"))
+    console.print(Rule(f"[bold green]🚀 Iniciando Desinstalación de {len(packages_to_uninstall)} Paquetes de {env_info['env_type'].upper()}[/bold green]"))
     
     failed_packages = []
     successful_packages = []
@@ -462,7 +695,7 @@ def uninstall_dependencies_selective():
             
             try:
                 result = subprocess.run(
-                    [sys.executable, '-m', 'pip', 'uninstall', '-y', package], 
+                    [pip_executable, '-m', 'pip', 'uninstall', '-y', package], 
                     capture_output=True, 
                     text=True,
                     timeout=30
@@ -492,36 +725,61 @@ def uninstall_dependencies_selective():
     console.print(Rule("[bold blue]🔄 Regenerando Reporte de Dependencias[/bold blue]"))
     generate_report()
     
-    console.print("[bold green]✅ uninstall_dependencies_selective() ejecutado correctamente.[/bold green]")
+    console.print(f"[bold green]✅ uninstall_dependencies_selective() ejecutado correctamente en {env_info['env_type'].upper()}.[/bold green]")
 
 def check_environment():
-    """Verifica y muestra el entorno de Python con interfaz moderna."""
+    """Verifica y muestra el entorno de Python con interfaz moderna y ambiente correcto."""
     console.print(Rule("[bold cyan]🔍 VERIFICACIÓN DEL ENTORNO PYTHON[/bold cyan]"))
     
     # Mostrar estado del entorno
     show_environment_status()
     
+    # Obtener información del ambiente y ejecutable correcto
+    env_info = env_manager.detect_environment()
+    pip_executable = env_manager.get_pip_executable()
+    
     # Ejecutar pip list con progreso
-    with console.status("[bold green]🔍 Obteniendo lista de paquetes instalados...", spinner="dots"):
+    with console.status(f"[bold green]🔍 Obteniendo lista de paquetes desde {env_info['env_type'].upper()}...", spinner="dots"):
         try:
-            result = subprocess.run([sys.executable, '-m', 'pip', 'list'], 
+            console.print(f"[dim]🔧 Usando: {pip_executable}[/dim]")
+            
+            result = subprocess.run([pip_executable, '-m', 'pip', 'list'], 
                                   capture_output=True, text=True, timeout=30)
             
             if result.returncode == 0:
+                # Crear panel con información del ambiente
+                env_details = f"[bold cyan]Ambiente:[/bold cyan] {env_info['env_type'].upper()}\n"
+                env_details += f"[bold cyan]Python:[/bold cyan] {env_info['python_version']}\n"
+                env_details += f"[bold cyan]Ejecutable:[/bold cyan] {pip_executable}\n"
+                if env_info['venv_path']:
+                    env_details += f"[bold cyan]VENV Path:[/bold cyan] {env_info['venv_path']}\n"
+                
+                # Contar paquetes instalados
+                package_lines = [line for line in result.stdout.split('\n') if line.strip() and not line.startswith('Package') and not line.startswith('---')]
+                package_count = len(package_lines)
+                env_details += f"[bold cyan]Paquetes instalados:[/bold cyan] {package_count}"
+                
                 console.print(Panel(
-                    Syntax(result.stdout, "text", theme="monokai", line_numbers=True),
-                    title="[bold green]📦 Paquetes Instalados[/bold green]",
+                    env_details + "\n\n" + Syntax(result.stdout, "text", theme="monokai", line_numbers=True),
+                    title=f"[bold green]📦 Paquetes Instalados en {env_info['env_type'].upper()}[/bold green]",
                     border_style="green"
                 ))
             else:
-                console.print(f"[bold red]❌ Error al verificar entorno: {result.stderr}[/bold red]")
+                console.print(Panel(
+                    f"[bold red]❌ Error al verificar entorno: {result.stderr}[/bold red]\n\n"
+                    f"[yellow]Ambiente: {env_info['env_type']}[/yellow]\n"
+                    f"[yellow]Ejecutable: {pip_executable}[/yellow]",
+                    title="[bold red]⚠️ Error de Verificación[/bold red]",
+                    border_style="red"
+                ))
                 
         except subprocess.TimeoutExpired:
-            console.print("[bold red]⏰ Timeout al verificar entorno[/bold red]")
+            console.print(f"[bold red]⏰ Timeout al verificar entorno {env_info['env_type']}[/bold red]")
         except Exception as e:
             console.print(f"[bold red]❌ Error inesperado: {e}[/bold red]")
+            console.print(f"[dim]Ambiente: {env_info['env_type']}, Ejecutable: {pip_executable}[/dim]")
     
-    console.print("[bold green]✅ check_environment() ejecutado correctamente.[/bold green]")
+    console.print(f"[bold green]✅ check_environment() ejecutado correctamente en {env_info['env_type'].upper()}.[/bold green]")
 
 def execute_activator():
     """Ejecuta el script activador con interfaz moderna."""
@@ -683,6 +941,262 @@ def manual_command():
             console.print("\n[yellow]🔙 Regresando al menú principal...[/yellow]")
             return
 
+def environment_manager_menu():
+    """Menú interactivo para gestionar cambios entre ambientes Python."""
+    while True:
+        console.clear()
+        console.print(Rule("[bold cyan]🔄 GESTIÓN DE AMBIENTES PYTHON[/bold cyan]"))
+        
+        # Mostrar estado actual
+        env_info = env_manager.detect_environment()
+        current_status = Panel(
+            f"[bold cyan]🔧 Ambiente Actual:[/bold cyan] [yellow]{env_info['env_type'].upper()}[/yellow]\n"
+            f"[bold cyan]🐍 Python:[/bold cyan] [green]{env_info['python_version']}[/green]\n"
+            f"[bold cyan]📍 Ejecutable:[/bold cyan] [dim]{env_manager.get_pip_executable()}[/dim]\n"
+            f"[bold cyan]📁 Directorio:[/bold cyan] [dim]{env_info['current_dir']}[/dim]",
+            title="[bold blue]📋 Estado Actual[/bold blue]",
+            border_style="blue"
+        )
+        console.print(current_status)
+        
+        # Tabla de opciones disponibles
+        options_table = Table(show_header=True, header_style="bold magenta", box=box.ROUNDED)
+        options_table.add_column("#", style="bold cyan", width=3)
+        options_table.add_column("🔧 Acción", style="bright_white", min_width=25)
+        options_table.add_column("📝 Descripción", style="bright_white")
+        options_table.add_column("🎯 Estado", justify="center")
+        
+        # Detectar qué ambientes están disponibles
+        local_venv_path = os.path.join(os.getcwd(), ".venv")
+        local_available = "✅ Disponible" if os.path.exists(os.path.join(local_venv_path, "Scripts", "python.exe")) else "❌ No encontrado"
+        current_indicator = "🟢 ACTIVO" if env_info['env_type'] == 'local_venv' else ""
+        
+        options_table.add_row(
+            "1", 
+            "📁 Cambiar a VENV LOCAL", 
+            f"Usar .venv en directorio actual\n[dim]{local_venv_path}[/dim]",
+            f"{local_available} {current_indicator}"
+        )
+        
+        global_indicator = "🟢 ACTIVO" if env_info['env_type'] == 'system' else ""
+        options_table.add_row(
+            "2", 
+            "🌐 Cambiar a SISTEMA/GLOBAL", 
+            "Usar instalación global de Python\n[dim red]⚠️ Cuidado con paquetes críticos[/dim red]",
+            f"✅ Disponible {global_indicator}"
+        )
+        
+        external_indicator = "🟢 ACTIVO" if env_info['env_type'] == 'external_venv' else ""
+        external_status = "🔗 Configurado" if env_manager.external_venv_path else "❓ No configurado"
+        options_table.add_row(
+            "3", 
+            "📂 Configurar VENV EXTERNO", 
+            "Seleccionar un venv de otra ubicación\n[dim]Útil para proyectos en otras carpetas[/dim]",
+            f"{external_status} {external_indicator}"
+        )
+        
+        options_table.add_row("4", "🔍 Verificar Ambiente Actual", "Mostrar detalles del ambiente activo", "📊 Info")
+        options_table.add_row("5", "🔙 Volver al Menú Principal", "Regresar al menú principal", "↩️ Salir")
+        
+        console.print(Panel(
+            options_table,
+            title="[bold cyan]⚙️ Opciones de Gestión de Ambientes[/bold cyan]",
+            border_style="cyan"
+        ))
+        
+        # Información adicional
+        info_md = """
+### 💡 Información Importante
+
+- **VENV LOCAL**: Busca `.venv` en el directorio actual del script
+- **SISTEMA/GLOBAL**: Usa la instalación global de Python (⚠️ cuidado!)
+- **VENV EXTERNO**: Permite seleccionar cualquier venv de otra ubicación
+- Los cambios afectan todas las operaciones de pip (instalar/desinstalar/listar)
+        """
+        
+        console.print(Panel(
+            Markdown(info_md),
+            title="[bold yellow]📚 Guía[/bold yellow]",
+            border_style="yellow"
+        ))
+        
+        try:
+            choice = Prompt.ask(
+                "\n[bold cyan]🎯 Seleccione una opción[/bold cyan]",
+                choices=["1", "2", "3", "4", "5"],
+                default="5"
+            )
+            
+            if choice == "1":
+                handle_switch_to_local_venv()
+            elif choice == "2":
+                handle_switch_to_global()
+            elif choice == "3":
+                handle_switch_to_external_venv()
+            elif choice == "4":
+                show_environment_status()
+                console.print("\n[dim]Presione Enter para continuar...[/dim]")
+                input()
+            elif choice == "5":
+                console.print("[bold green]🔙 Regresando al menú principal...[/bold green]")
+                return
+                
+        except KeyboardInterrupt:
+            console.print("\n[yellow]🔙 Regresando al menú principal...[/yellow]")
+            return
+
+def handle_switch_to_local_venv():
+    """Maneja el cambio al VENV local."""
+    console.print(Rule("[bold blue]📁 Cambio a VENV LOCAL[/bold blue]"))
+    
+    local_venv_path = os.path.join(os.getcwd(), ".venv")
+    
+    if not os.path.exists(local_venv_path):
+        console.print(Panel(
+            f"[bold red]❌ No se encontró VENV local[/bold red]\n\n"
+            f"[yellow]Ruta buscada: {local_venv_path}[/yellow]\n\n"
+            f"[cyan]💡 Sugerencia: Use la opción 1 del menú principal para ejecutar el script activador, "
+            f"o cree un venv con:[/cyan]\n"
+            f"[green]python -m venv .venv[/green]",
+            title="[bold red]⚠️ VENV No Encontrado[/bold red]",
+            border_style="red"
+        ))
+        console.print("\n[dim]Presione Enter para continuar...[/dim]")
+        input()
+        return
+    
+    if env_manager.switch_to_local_venv():
+        console.print(Panel(
+            f"[bold green]✅ Cambio exitoso a VENV LOCAL[/bold green]\n\n"
+            f"[cyan]📂 Ruta: {local_venv_path}[/cyan]\n"
+            f"[cyan]🔧 Ejecutable: {env_manager.get_pip_executable()}[/cyan]\n\n"
+            f"[yellow]Todas las operaciones de pip ahora usarán este entorno.[/yellow]",
+            title="[bold green]🎉 Cambio Completado[/bold green]",
+            border_style="green"
+        ))
+    else:
+        console.print(Panel(
+            "[bold red]❌ Error al cambiar al VENV local[/bold red]\n\n"
+            "[yellow]Verifique que el entorno virtual esté correctamente configurado.[/yellow]",
+            title="[bold red]⚠️ Error[/bold red]",
+            border_style="red"
+        ))
+    
+    console.print("\n[dim]Presione Enter para continuar...[/dim]")
+    input()
+
+def handle_switch_to_global():
+    """Maneja el cambio al ambiente global/sistema."""
+    console.print(Rule("[bold red]🌐 Cambio a AMBIENTE GLOBAL/SISTEMA[/bold red]"))
+    
+    # Advertencia de seguridad
+    warning_panel = Panel(
+        "[bold red]🚨 ADVERTENCIA CRÍTICA 🚨[/bold red]\n\n"
+        "[yellow]Está a punto de cambiar al ambiente GLOBAL de Python.[/yellow]\n\n"
+        "[red]⚠️ Riesgos:[/red]\n"
+        "[red]• Puede afectar otras aplicaciones del sistema[/red]\n"
+        "[red]• Desinstalar paquetes puede romper funcionalidades[/red]\n"
+        "[red]• No se recomienda para desarrollo[/red]\n\n"
+        "[cyan]💡 Recomendación: Use un entorno virtual en su lugar.[/cyan]",
+        title="[bold red]🚨 Confirmación de Seguridad[/bold red]",
+        border_style="red"
+    )
+    console.print(warning_panel)
+    
+    if not Confirm.ask("[bold red]¿Está SEGURO de cambiar al ambiente GLOBAL?[/bold red]"):
+        console.print("[yellow]✅ Cambio cancelado por seguridad.[/yellow]")
+        console.print("\n[dim]Presione Enter para continuar...[/dim]")
+        input()
+        return
+    
+    if env_manager.switch_to_system():
+        console.print(Panel(
+            f"[bold yellow]⚠️ Cambio realizado a AMBIENTE GLOBAL[/bold yellow]\n\n"
+            f"[cyan]🔧 Ejecutable: {env_manager.get_pip_executable()}[/cyan]\n\n"
+            f"[red]PRECAUCIÓN: Todas las operaciones afectarán el sistema global.[/red]",
+            title="[bold yellow]🌐 Ambiente Global Activo[/bold yellow]",
+            border_style="yellow"
+        ))
+    else:
+        console.print(Panel(
+            "[bold red]❌ Error al cambiar al ambiente global[/bold red]",
+            title="[bold red]⚠️ Error[/bold red]",
+            border_style="red"
+        ))
+    
+    console.print("\n[dim]Presione Enter para continuar...[/dim]")
+    input()
+
+def handle_switch_to_external_venv():
+    """Maneja el cambio a un VENV externo."""
+    console.print(Rule("[bold blue]📂 Configuración de VENV EXTERNO[/bold blue]"))
+    
+    console.print(Panel(
+        "[bold cyan]� Selección de VENV Externo[/bold cyan]\n\n"
+        "[yellow]Se abrirá un diálogo para seleccionar la carpeta del entorno virtual.[/yellow]\n"
+        "[yellow]Busque una carpeta que contenga Scripts/python.exe (Windows) o bin/python (Linux/Mac).[/yellow]\n\n"
+        "[cyan]Ejemplos de rutas típicas:[/cyan]\n"
+        "[green]• C:\\Users\\usuario\\mi_proyecto\\.venv[/green]\n"
+        "[green]• C:\\Python\\envs\\mi_entorno[/green]\n"
+        "[green]• D:\\Proyectos\\app\\venv[/green]",
+        title="[bold blue]📋 Instrucciones[/bold blue]",
+        border_style="blue"
+    ))
+    
+    # Solicitar ruta manualmente (ya que no tenemos tkinter disponible)
+    try:
+        venv_path = Prompt.ask(
+            "\n[bold cyan]📂 Ingrese la ruta completa al directorio del VENV externo[/bold cyan]",
+            default=""
+        ).strip()
+        
+        if not venv_path:
+            console.print("[yellow]❌ Operación cancelada.[/yellow]")
+            console.print("\n[dim]Presione Enter para continuar...[/dim]")
+            input()
+            return
+        
+        # Verificar que la ruta existe
+        if not os.path.exists(venv_path):
+            console.print(Panel(
+                f"[bold red]❌ La ruta no existe[/bold red]\n\n"
+                f"[yellow]Ruta ingresada: {venv_path}[/yellow]\n\n"
+                f"[cyan]Verifique que la ruta sea correcta y que tenga permisos de acceso.[/cyan]",
+                title="[bold red]⚠️ Error de Ruta[/bold red]",
+                border_style="red"
+            ))
+            console.print("\n[dim]Presione Enter para continuar...[/dim]")
+            input()
+            return
+        
+        # Intentar cambiar al venv externo
+        if env_manager.switch_to_external_venv(venv_path):
+            console.print(Panel(
+                f"[bold green]✅ VENV externo configurado exitosamente[/bold green]\n\n"
+                f"[cyan]📂 Ruta: {venv_path}[/cyan]\n"
+                f"[cyan]🔧 Ejecutable: {env_manager.get_pip_executable()}[/cyan]\n\n"
+                f"[yellow]Todas las operaciones de pip ahora usarán este entorno.[/yellow]",
+                title="[bold green]🎉 VENV Externo Activo[/bold green]",
+                border_style="green"
+            ))
+        else:
+            console.print(Panel(
+                f"[bold red]❌ Error al configurar VENV externo[/bold red]\n\n"
+                f"[yellow]Ruta: {venv_path}[/yellow]\n\n"
+                f"[cyan]Verifique que:[/cyan]\n"
+                f"[cyan]• Sea un directorio de entorno virtual válido[/cyan]\n"
+                f"[cyan]• Contenga Scripts/python.exe (Windows) o bin/python (Linux/Mac)[/cyan]\n"
+                f"[cyan]• Tenga permisos de acceso[/cyan]",
+                title="[bold red]⚠️ Error de Configuración[/bold red]",
+                border_style="red"
+            ))
+            
+    except KeyboardInterrupt:
+        console.print("\n[yellow]❌ Operación cancelada.[/yellow]")
+    
+    console.print("\n[dim]Presione Enter para continuar...[/dim]")
+    input()
+
 def copy_command_interface():
     """Interfaz para copiar comandos específicos al portapapeles."""
     commands = {
@@ -749,7 +1263,7 @@ def show_main_menu() -> None:
     console.print(Panel(
         Align.center(Text(banner, style="bold bright_blue")),
         title="[bold cyan]🧹 Herramienta de Limpieza de Python 🐍[/bold cyan]",
-        subtitle="[dim]Gestión avanzada de entornos virtuales y dependencias[/dim]",
+        subtitle="[dim]Gestión avanzada de entornos virtuales y dependencias - v2.1[/dim]",
         border_style="bright_blue",
         padding=(1, 2)
     ))
@@ -760,22 +1274,23 @@ def show_main_menu() -> None:
     # Crear layout de dos columnas para opciones
     left_column = Table(show_header=False, box=None, padding=(0, 1))
     left_column.add_column("", style="bold cyan", width=3)
-    left_column.add_column("", style="bright_white", min_width=25)
+    left_column.add_column("", style="bright_white", min_width=30)
     
     right_column = Table(show_header=False, box=None, padding=(0, 1))
     right_column.add_column("", style="bold cyan", width=3)
-    right_column.add_column("", style="bright_white", min_width=25)
+    right_column.add_column("", style="bright_white", min_width=30)
     
     # Opciones del menú - Columna izquierda
     left_column.add_row("1", "⚡ Ejecutar Script Activador")
     left_column.add_row("2", "📄 Generar Reporte de Dependencias")
     left_column.add_row("3", "🧹 Desinstalar Todas las Dependencias")
     left_column.add_row("4", "🎯 Desinstalar Dependencias (Selectivo)")
+    left_column.add_row("5", "🔄 Gestionar Ambientes Python")
     
     # Opciones del menú - Columna derecha
-    right_column.add_row("5", "🔍 Verificar Entorno de Python")
-    right_column.add_row("6", "🛠️ Comandos Manuales")
-    right_column.add_row("7", "🚪 Salir de la aplicación")
+    right_column.add_row("6", "🔍 Verificar Entorno de Python")
+    right_column.add_row("7", "🛠️ Comandos Manuales")
+    right_column.add_row("8", "🚪 Salir de la aplicación")
     right_column.add_row("", "")  # Espaciado
     
     # Combinar columnas
@@ -786,11 +1301,19 @@ def show_main_menu() -> None:
     
     console.print(menu_columns)
     
-    # Panel de información adicional
+    # Panel de información adicional mejorado
+    env_info = env_manager.detect_environment()
+    env_warning = ""
+    if env_info["env_type"] == "system":
+        env_warning = "\n[bold red]⚠️ ADVERTENCIA: Trabajando en ambiente GLOBAL - Usar con precaución[/bold red]"
+    
     info_text = Text()
     info_text.append("💡 ", style="yellow")
     info_text.append("Tip: ", style="bold yellow")
-    info_text.append("Asegúrese de que el entorno virtual esté activado antes de realizar operaciones de dependencias.", style="cyan")
+    info_text.append(f"Ambiente actual: {env_info['env_type'].upper()}. ", style="cyan")
+    info_text.append("Use la opción 5 para cambiar entre ambientes de forma segura.", style="cyan")
+    if env_warning:
+        info_text.append(env_warning, style="red")
     
     console.print(Panel(
         info_text,
@@ -801,10 +1324,13 @@ def show_main_menu() -> None:
 def main():
     """Función principal con interfaz CLI moderna usando Rich."""
     try:
+        # Inicializar el gestor de ambientes
+        env_manager.detect_environment()
+        
         # Mensaje de bienvenida inicial
         welcome_text = Text()
         welcome_text.append("🎉 ¡Bienvenido a ", style="bold green")
-        welcome_text.append("py-cleaner", style="bold bright_blue")
+        welcome_text.append("py-cleaner v2.1", style="bold bright_blue")
         welcome_text.append("! 🐍✨", style="bold green")
         
         console.print(Panel(
@@ -822,8 +1348,8 @@ def main():
             try:
                 choice = Prompt.ask(
                     "\n[bold cyan]🎯 Seleccione una opción[/bold cyan]",
-                    choices=["1", "2", "3", "4", "5", "6", "7"],
-                    default="7"
+                    choices=["1", "2", "3", "4", "5", "6", "7", "8"],
+                    default="8"
                 )
                 
                 console.print(Rule(f"[bold bright_blue]Ejecutando opción {choice}[/bold bright_blue]"))
@@ -838,15 +1364,17 @@ def main():
                 elif choice == '4':
                     uninstall_dependencies_selective()
                 elif choice == '5':
-                    check_environment()
+                    environment_manager_menu()
                 elif choice == '6':
-                    manual_command()
+                    check_environment()
                 elif choice == '7':
+                    manual_command()
+                elif choice == '8':
                     show_goodbye_message()
                     raise SystemExit
                 
                 # Pausa para que el usuario pueda leer la salida
-                if choice in ['1', '2', '3', '4', '5']:
+                if choice in ['1', '2', '3', '4', '6']:
                     console.print("\n[dim]Presione Enter para continuar...[/dim]")
                     input()
                     
