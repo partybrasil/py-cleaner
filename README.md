@@ -2,9 +2,9 @@
 
 > **Herramienta avanzada para gestionar y limpiar dependencias de Python con control granular**
 
-[![Python](https://img.shields.io/badge/Python-3.7+-blue.svg)](https://python.org)
-[![PySide6](https://img.shields.io/badge/PySide6-GUI-green.svg)](https://pypi.org/project/PySide6/)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.7+-blue.svg)](https://python.org) [![PySide6](https://img.shields.io/badge/PySide6-GUI-green.svg)](https://pypi.org/project/PySide6/) [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+***OBS: Need some fixes on venv activation or change over venvs***
 
 ---
 
@@ -28,6 +28,7 @@
 ### 🖥️ **CLI (Interfaz de Línea de Comandos)**
 
 **Menú Principal Actualizado:**
+
 ```
 1. Ejecutar Script Activador
 2. Generar Reporte de Dependencias Instaladas
@@ -39,6 +40,7 @@
 ```
 
 **🎯 Desinstalación Selectiva CLI:**
+
 - ✅ **Interfaz interactiva**: Lista numerada de todos los paquetes
 - ✅ **Selección flexible**: Múltiples métodos de selección
   - Números individuales: `1 3 5`
@@ -54,6 +56,7 @@
 ### 🖼️ **GUI (Interfaz Gráfica)**
 
 **Nuevos Componentes:**
+
 - 🎯 **Botón "Desinstalar Selectivo"**: Acceso directo a la funcionalidad avanzada
 - 🪟 **Diálogo especializado**: Ventana dedicada para selección de paquetes
 - 📋 **Tabla interactiva**: Lista con checkboxes para cada paquete
@@ -68,18 +71,21 @@
 ### 🔧 **Mejoras Técnicas**
 
 **Robustez y Seguridad:**
+
 - ⏱️ **Timeouts configurables** (30s por operación)
 - 🛡️ **Manejo exhaustivo de excepciones**
 - 🔄 **Recuperación automática** después de errores
 - 📝 **Logging detallado** con niveles (info, warn, err, ok)
 
 **Compatibilidad:**
+
 - 🔗 **Integración completa** con todos los entornos (local, global, externo)
 - 📦 **Soporte universal** para formatos de pip freeze (`==`, `>=`)
 - 🪟 **Compatibilidad con Windows PowerShell**
 - 🔤 **Codificación UTF-8** para caracteres especiales
 
 **Rendimiento:**
+
 - ⚡ **Operaciones asíncronas** en GUI para evitar bloqueos
 - 🚀 **Procesamiento eficiente** de listas grandes de paquetes
 - 🔍 **Filtrado en tiempo real** sin lag
@@ -89,11 +95,13 @@
 ## 📋 Requisitos del Sistema
 
 ### **Requisitos Mínimos:**
+
 - **Python**: 3.7 o superior
 - **Sistema Operativo**: Windows (con PowerShell)
 - **Memoria**: 100 MB disponible
 
 ### **Dependencias:**
+
 - **Para CLI**: Solo bibliotecas estándar de Python
 - **Para GUI**: `PySide6` (se instala automáticamente si no está disponible)
 
@@ -102,12 +110,14 @@
 ## 🛠️ Instalación y Configuración
 
 ### **1. Clonar el Repositorio**
+
 ```bash
 git clone https://github.com/partybrasil/py-cleaner.git
 cd py-cleaner
 ```
 
 ### **2. Configurar Entorno Virtual (Recomendado)**
+
 ```bash
 # Crear entorno virtual
 python -m venv .venv
@@ -120,11 +130,13 @@ powershell -File Activador-VENV.ps1
 ```
 
 ### **3. Instalar Dependencias (Solo para GUI)**
+
 ```bash
 pip install PySide6
 ```
 
 ### **4. Verificar Instalación**
+
 ```bash
 # Probar CLI
 python py-cleaner.py
@@ -144,6 +156,7 @@ python py-cleaner.py
 ```
 
 **Ejemplo de Desinstalación Selectiva:**
+
 ```
 🧹 === DESINSTALACIÓN SELECTIVA DE DEPENDENCIAS ===
 
@@ -173,6 +186,7 @@ python py-cleaner.py --gui
 ```
 
 **Funcionalidades GUI:**
+
 1. **Gestión de entornos**: Cambiar entre VENV local, global y externo
 2. **Operaciones básicas**: Crear VENV, generar reportes, verificar entorno
 3. **Desinstalación selectiva**: Botón dedicado con diálogo avanzado
@@ -184,6 +198,7 @@ python py-cleaner.py --gui
 ## 🎯 Casos de Uso Típicos
 
 ### **1. Limpieza de Entorno de Desarrollo**
+
 ```bash
 # Generar reporte actual
 python py-cleaner.py -> opción 2
@@ -193,6 +208,7 @@ python py-cleaner.py -> opción 4 -> seleccionar paquetes específicos
 ```
 
 ### **2. Optimización de Producción**
+
 ```bash
 # GUI para análisis visual
 python py-cleaner.py --gui
@@ -201,12 +217,14 @@ python py-cleaner.py --gui
 ```
 
 ### **3. Resolución de Conflictos**
+
 ```bash
 # Desinstalar versiones problemáticas específicas
 python py-cleaner.py -> opción 4 -> 15 20 22  # paquetes conflictivos
 ```
 
 ### **4. Migración de Proyectos**
+
 ```bash
 # Preparar entorno limpio
 python py-cleaner.py -> opción 4 -> todos  # limpiar todo
@@ -219,22 +237,22 @@ python py-cleaner.py -> opción 4 -> todos  # limpiar todo
 
 ### **CLI - Métodos de Selección:**
 
-| Entrada | Descripción | Resultado |
-|---------|-------------|-----------|
-| `1 3 5` | Números individuales | Desinstala paquetes 1, 3 y 5 |
-| `5-8` | Rango continuo | Desinstala paquetes 5, 6, 7 y 8 |
-| `1 3 5-8 10` | Combinación | Desinstala paquetes 1, 3, 5, 6, 7, 8 y 10 |
-| `todos` | Selección completa | Desinstala todos los paquetes |
-| `1,3,5,7,9` | Separados por comas | Desinstala paquetes 1, 3, 5, 7 y 9 |
+| Entrada        | Descripción          | Resultado                                 |
+| -------------- | --------------------- | ----------------------------------------- |
+| `1 3 5`      | Números individuales | Desinstala paquetes 1, 3 y 5              |
+| `5-8`        | Rango continuo        | Desinstala paquetes 5, 6, 7 y 8           |
+| `1 3 5-8 10` | Combinación          | Desinstala paquetes 1, 3, 5, 6, 7, 8 y 10 |
+| `todos`      | Selección completa   | Desinstala todos los paquetes             |
+| `1,3,5,7,9`  | Separados por comas   | Desinstala paquetes 1, 3, 5, 7 y 9        |
 
 ### **GUI - Funcionalidades:**
 
-| Característica | Descripción |
-|----------------|-------------|
-| **Filtro de búsqueda** | Buscar paquetes por nombre en tiempo real |
-| **Seleccionar Todos** | Marcar todos los paquetes visibles |
-| **Deseleccionar Todos** | Desmarcar todos los paquetes |
-| **Contador dinámico** | Ver cantidad de paquetes seleccionados |
+| Característica                | Descripción                                     |
+| ------------------------------ | ------------------------------------------------ |
+| **Filtro de búsqueda**  | Buscar paquetes por nombre en tiempo real        |
+| **Seleccionar Todos**    | Marcar todos los paquetes visibles               |
+| **Deseleccionar Todos**  | Desmarcar todos los paquetes                     |
+| **Contador dinámico**   | Ver cantidad de paquetes seleccionados           |
 | **Confirmación visual** | Diálogo con lista de paquetes antes de proceder |
 
 ---
@@ -243,12 +261,12 @@ python py-cleaner.py -> opción 4 -> todos  # limpiar todo
 
 ### **Gestión de Entornos Virtuales**
 
-| Función | CLI | GUI | Descripción |
-|---------|-----|-----|-------------|
-| **Activar VENV local** | Opción 1 | ⚡ Activar VENV | Activa el entorno virtual local |
-| **Cargar VENV externo** | N/A | 📂 Cargar VENV externo | Selecciona un VENV desde otra ubicación |
-| **Cambiar a Global** | N/A | 🌐 Cargar VENV GLOBAL | Cambia al entorno Python global |
-| **Crear nuevo VENV** | Scripts externos | 🆕 Crear VENV | Crea un nuevo entorno virtual |
+| Función                      | CLI              | GUI                    | Descripción                             |
+| ----------------------------- | ---------------- | ---------------------- | ---------------------------------------- |
+| **Activar VENV local**  | Opción 1        | ⚡ Activar VENV        | Activa el entorno virtual local          |
+| **Cargar VENV externo** | N/A              | 📂 Cargar VENV externo | Selecciona un VENV desde otra ubicación |
+| **Cambiar a Global**    | N/A              | 🌐 Cargar VENV GLOBAL  | Cambia al entorno Python global          |
+| **Crear nuevo VENV**    | Scripts externos | 🆕 Crear VENV          | Crea un nuevo entorno virtual            |
 
 ### **Reportes y Análisis**
 
@@ -262,61 +280,31 @@ python py-cleaner.py -> opción 4 -> todos  # limpiar todo
 ## 🚀 Beneficios y Ventajas
 
 ### **🔒 Seguridad**
+
 - **Doble confirmación** antes de cualquier desinstalación
 - **Validación de selección** para evitar operaciones vacías
 - **Manejo robusto de errores** con recuperación automática
 - **Timeouts** para evitar cuelgues en operaciones largas
 
 ### **🎨 Usabilidad**
+
 - **Interfaces intuitivas** tanto CLI como GUI
 - **Feedback visual** con emojis y colores
 - **Búsqueda y filtrado** para encontrar paquetes rápidamente
 - **Progreso en tiempo real** durante operaciones largas
 
 ### **⚡ Rendimiento**
+
 - **Operaciones eficientes** incluso con cientos de paquetes
 - **Procesamiento asíncrono** en GUI para mantener responsividad
 - **Filtrado instantáneo** sin lag en listas grandes
 
 ### **🔄 Mantenibilidad**
+
 - **Código modular** y bien estructurado
 - **Documentación completa** integrada
 - **Logging exhaustivo** para debugging
 - **Pruebas automatizadas** incluidas
-
----
-
-## 🧪 Testing y Validación
-
-### **Script de Pruebas Incluido**
-```bash
-python test_selective_uninstall.py
-```
-
-**Pruebas Automatizadas:**
-- ✅ Importación de funciones
-- ✅ Lectura de dependencias desde pyREPORT.txt
-- ✅ Disponibilidad de PySide6 para GUI
-- ✅ Compatibilidad CLI y GUI
-- ✅ Integración de nuevas funcionalidades
-
-### **Resultados de Pruebas**
-```
-🚀 Iniciando pruebas de py-cleaner - Desinstalación Selectiva
-============================================================
-📁 Directorio de trabajo: C:\Users\usuario\Proyectos\py-cleaner
-✅ Funciones importadas correctamente
-✅ Se encontraron 127 dependencias en el reporte
-✅ PySide6 disponible
-✅ Componentes GUI disponibles
-
-============================================================
-📊 RESUMEN DE PRUEBAS:
-   CLI Funcional: ✅
-   GUI Disponible: ✅
-
-🎉 ¡La funcionalidad de desinstalación selectiva está lista!
-```
 
 ---
 
@@ -329,7 +317,6 @@ py-cleaner/
 ├── 📄 Creador-VENV.ps1        # Script para crear entorno virtual
 ├── 📄 pyREPORT.txt            # Reporte de dependencias (generado)
 ├── 📄 requirements.txt        # Dependencias del proyecto
-├── 📄 test_selective_uninstall.py  # Script de pruebas
 ├── 📄 README.md               # Este archivo de documentación
 └── 📄 LICENSE                 # Licencia MIT
 ```
@@ -347,6 +334,7 @@ py-cleaner/
 5. **Crea** un Pull Request
 
 ### **Áreas de Contribución**
+
 - 🐛 Reportar bugs
 - ✨ Nuevas funcionalidades
 - 📚 Mejoras en documentación
@@ -381,6 +369,7 @@ copies or substantial portions of the Software.
 ## 🆘 Soporte y Contacto
 
 ### **Reportar Problemas**
+
 - 🐛 **Issues**: [GitHub Issues](https://github.com/partybrasil/py-cleaner/issues)
 - 📧 **Email**: Crear un issue en el repositorio
 - 📖 **Documentación**: Este README.md contiene toda la información necesaria
@@ -408,13 +397,13 @@ R: py-cleaner genera reportes antes de las operaciones. Usa `pyREPORT.txt` para 
 La funcionalidad de **desinstalación selectiva** está totalmente operativa tanto en CLI como en GUI, con todas las características solicitadas y mejoras adicionales para una experiencia de usuario excepcional.
 
 ### **🚀 Versión Actual: 2.0**
+
 - ✅ CLI con desinstalación selectiva avanzada
 - ✅ GUI moderna con PySide6
 - ✅ Gestión completa de entornos virtuales
 - ✅ Logging y reportes detallados
-- ✅ Pruebas automatizadas incluidas
 - ✅ Documentación completa
 
 ---
 
-> 💡 **¡py-cleaner está listo para producción y cumple todos los requisitos solicitados!**
+> 💡 **¡py-cleaner está listo para producción y cumple todos los requisitos solicitados! Aun dispuesto a crescer con la ayuda de la comunidad.**
